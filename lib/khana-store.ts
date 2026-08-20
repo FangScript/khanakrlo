@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSyncExternalStore } from "react";
 
 import { CartLine, MenuItem, type AddOn } from "@/lib/khana-data";
@@ -12,12 +13,23 @@ export type PlacedOrder = {
   createdAt: string;
 };
 
+export type CustomerProfile = {
+  name: string;
+  phone: string;
+  deliveryAddress: string;
+};
+
 type KhanaState = {
   cart: CartLine[];
   lastOrder: PlacedOrder | null;
+  customer: CustomerProfile | null;
+  hasHydratedCustomer: boolean;
 };
 
-let state: KhanaState = { cart: [], lastOrder: null };
+const CUSTOMER_STORAGE_KEY = "khana-karlo/customer-profile";
+
+let state: KhanaState = { cart: [], lastOrder: null, customer: null, hasHydratedCustomer: false };
+let hydrationPromise: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
 function setState(next: KhanaState) {
@@ -82,8 +94,37 @@ function placeOrder(restaurantName: string, total: number) {
     status: "preparing",
     createdAt: "Just now",
   };
-  setState({ cart: [], lastOrder: nextOrder });
+  setState({ ...state, cart: [], lastOrder: nextOrder });
   return nextOrder;
+}
+
+async function hydrateCustomerSession() {
+  if (state.hasHydratedCustomer) return;
+  if (hydrationPromise) return hydrationPromise;
+
+  hydrationPromise = (async () => {
+    try {
+      const persistedProfile = await AsyncStorage.getItem(CUSTOMER_STORAGE_KEY);
+      const customer = persistedProfile ? (JSON.parse(persistedProfile) as CustomerProfile) : null;
+      setState({ ...state, customer, hasHydratedCustomer: true });
+    } catch {
+      setState({ ...state, hasHydratedCustomer: true });
+    } finally {
+      hydrationPromise = null;
+    }
+  })();
+
+  return hydrationPromise;
+}
+
+function completeCustomerOnboarding(customer: CustomerProfile) {
+  setState({ ...state, customer, hasHydratedCustomer: true });
+  void AsyncStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify(customer));
+}
+
+function clearCustomerSession() {
+  setState({ ...state, customer: null, hasHydratedCustomer: true });
+  void AsyncStorage.removeItem(CUSTOMER_STORAGE_KEY);
 }
 
 export function useKhanaStore() {
@@ -94,6 +135,8 @@ export function useKhanaStore() {
     changeQuantity,
     clearCart,
     placeOrder,
+    hydrateCustomerSession,
+    completeCustomerOnboarding,
+    clearCustomerSession,
   };
 }
-

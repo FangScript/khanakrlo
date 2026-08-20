@@ -1,12 +1,32 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router } from "expo-router";
-import { FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect } from "react";
+import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { BrandTitle, CartBar, Pill } from "@/components/khana-ui";
 import { ScreenContainer } from "@/components/screen-container";
 import { cuisineFilters, restaurants, type Restaurant } from "@/lib/khana-data";
+import { CustomerProfile, useKhanaStore } from "@/lib/khana-store";
 
 export default function HomeScreen() {
+  const { customer, hasHydratedCustomer, hydrateCustomerSession } = useKhanaStore();
+
+  useEffect(() => {
+    void hydrateCustomerSession();
+  }, [hydrateCustomerSession]);
+
+  useEffect(() => {
+    if (hasHydratedCustomer && !customer) router.replace("/auth/welcome" as never);
+  }, [customer, hasHydratedCustomer]);
+
+  if (!hasHydratedCustomer || !customer) {
+    return (
+      <ScreenContainer>
+        <View style={styles.loadingScreen}><ActivityIndicator color="#168A4A" size="small" /><Text style={styles.loadingText}>Preparing your Khana KarLo experience…</Text></View>
+      </ScreenContainer>
+    );
+  }
+
   return (
     <ScreenContainer>
       <View style={styles.screen}>
@@ -15,7 +35,7 @@ export default function HomeScreen() {
         keyExtractor={(restaurant) => restaurant.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
-        ListHeaderComponent={<HomeHeader />}
+        ListHeaderComponent={<HomeHeader customer={customer} />}
         renderItem={({ item }) => <RestaurantCard restaurant={item} />}
         ListFooterComponent={<View style={styles.bottomSpace} />}
       />
@@ -25,13 +45,13 @@ export default function HomeScreen() {
   );
 }
 
-function HomeHeader() {
+function HomeHeader({ customer }: { customer: CustomerProfile }) {
   return (
     <>
       <View style={styles.header}>
         <BrandTitle />
-        <Pressable accessibilityRole="button" style={({ pressed }) => [styles.avatar, pressed && styles.iconPressed]}>
-          <Text style={styles.avatarText}>A</Text>
+        <Pressable accessibilityRole="button" onPress={() => router.push("/profile" as never)} style={({ pressed }) => [styles.avatar, pressed && styles.iconPressed]}>
+          <Text style={styles.avatarText}>{customer.name.slice(0, 1).toUpperCase()}</Text>
         </Pressable>
       </View>
 
@@ -39,7 +59,7 @@ function HomeHeader() {
         <View style={styles.locationIcon}><MaterialIcons name="location-on" size={18} color="#064B2C" /></View>
         <View style={styles.locationTextBlock}>
           <Text style={styles.deliverTo}>DELIVER TO</Text>
-          <Text style={styles.locationText}>F-10 Markaz, Islamabad</Text>
+          <Text style={styles.locationText} numberOfLines={1}>{customer.deliveryAddress}</Text>
         </View>
         <MaterialIcons name="keyboard-arrow-down" size={22} color="#064B2C" />
       </Pressable>
@@ -129,6 +149,8 @@ function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#FFF8ED" },
+  loadingScreen: { flex: 1, backgroundColor: "#FFF8ED", alignItems: "center", justifyContent: "center", gap: 12 },
+  loadingText: { color: "#6C7A70", fontSize: 13, lineHeight: 18, fontWeight: "700" },
   listContent: { paddingTop: 14, paddingHorizontal: 16 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 15 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#E0F4E7", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#B6E2C4" },

@@ -18,3 +18,7 @@
 - [x] Define separate login, signup, verification, and approval flows for each role.
 - [x] Produce a complete role-specific screen inventory, navigation model, and MVP/V2 prioritization.
 - [x] Document recommended next implementation milestones for the multi-application platform.
+- [x] Build customer phone-number entry and OTP verification screens.
+- [x] Build customer profile basics and delivery-location onboarding screens.
+- [x] Connect onboarding completion to the existing customer home flow with local session state.
+- [x] Validate the customer onboarding experience and save an updated project version.
