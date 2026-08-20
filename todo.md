@@ -48,3 +48,10 @@
 - [x] Add Account workspace UI for Customer, Khana KarLo Business, and Become a Rider application states.
 - [x] Add deterministic backend and client tests for role boundaries and workspace state transitions.
 - [x] Validate the production-foundation slice and save an updated project version.
+- [x] Define and migrate Restaurant, Cloud Kitchen, brand, station, menu, service-zone, document, payout, staff, and review-checklist schemas.
+- [x] Implement transactional Business application draft, submission, review, approval activation, suspension, audit, and notification services.
+- [x] Build resumable Restaurant and Cloud Kitchen Business application screens with required-data validation.
+- [x] Build secure Business document metadata and upload workflow with configurable review requirements.
+- [x] Build a protected Admin Business application queue, detail review, decision, and activation experience.
+- [x] Activate approved Restaurant Live Orders or Cloud Kitchen Kitchen Control through workspace guards.
+- [x] Validate Business onboarding, Admin review, and approval-gated workspace activation end to end.

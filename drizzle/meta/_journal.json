@@ -15,6 +15,20 @@
       "when": 1787243793078,
       "tag": "0001_overconfident_junta",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1787244761058,
+      "tag": "0002_lethal_sebastian_shaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1787244873126,
+      "tag": "0003_round_bloodscream",
+      "breakpoints": true
     }
   ]
 }

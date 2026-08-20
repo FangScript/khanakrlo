@@ -1,6 +1,8 @@
 import { COOKIE_NAME } from "../shared/const.js";
 import { BUSINESS_TYPES, WORKSPACE_APPLICATION_TYPES, WORKSPACE_APPLICATION_STATUSES, validateWorkspaceApplication } from "../shared/workspace";
+import { BUSINESS_DOCUMENT_TYPES, type BusinessApplicationDraft } from "../shared/business";
 import * as db from "./db";
+import * as business from "./business-service";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -12,6 +14,10 @@ const workspaceApplicationInput = z.object({
   displayName: z.string().trim().max(160).optional(),
   phoneE164: z.string().regex(/^\+[1-9]\d{7,14}$/).optional(),
   city: z.string().trim().max(120).optional(),
+});
+
+const businessDraftInput = z.object({
+  legalName: z.string().max(180), displayName: z.string().max(160), supportPhone: z.string().max(20), city: z.string().max(120), addressLine1: z.string().max(255), description: z.string().max(2000).optional(), pickupInstructions: z.string().max(500).optional(), prepTimeMinutes: z.number().int(), openingTime: z.string().max(5), closingTime: z.string().max(5), serviceZone: z.object({ name: z.string().max(120), deliveryFeeMinor: z.number().int(), minimumOrderMinor: z.number().int() }), menu: z.array(z.object({ category: z.string().max(120), items: z.array(z.object({ name: z.string().max(160), description: z.string().max(1000).optional(), priceMinor: z.number().int(), prepTimeMinutes: z.number().int() })) })), businessType: z.enum(BUSINESS_TYPES), restaurant: z.object({ cuisine: z.string().max(120) }).optional(), cloudKitchen: z.object({ kitchenName: z.string().max(160), capacityLimit: z.number().int(), brands: z.array(z.object({ name: z.string().max(160), cuisine: z.string().max(120), description: z.string().max(1000).optional() })), stations: z.array(z.object({ name: z.string().max(120), capacity: z.number().int() })) }).optional(),
 });
 
 export const appRouter = router({
@@ -48,6 +54,22 @@ export const appRouter = router({
         await db.reviewWorkspaceApplication(ctx.user.id, input.applicationId, input.status, input.reviewNote);
         return { success: true } as const;
       }),
+  }),
+
+  businessApplication: router({
+    mine: protectedProcedure.query(({ ctx }) => business.getMyBusinessApplication(ctx.user.id)),
+    saveDraft: protectedProcedure.input(businessDraftInput).mutation(({ ctx, input }) => business.saveBusinessDraft(ctx.user.id, input as BusinessApplicationDraft, false)),
+    submit: protectedProcedure.input(businessDraftInput).mutation(({ ctx, input }) => business.saveBusinessDraft(ctx.user.id, input as BusinessApplicationDraft, true)),
+    uploadDocument: protectedProcedure.input(z.object({ documentType: z.enum(BUSINESS_DOCUMENT_TYPES), originalName: z.string().min(1).max(255), mimeType: z.enum(["application/pdf", "image/jpeg", "image/png"]), dataBase64: z.string().min(1).max(7_000_000) })).mutation(({ ctx, input }) => business.uploadBusinessDocument(ctx.user.id, input)),
+  }),
+
+  businessOperations: router({
+    mine: protectedProcedure.query(({ ctx }) => business.getMyBusinessOperations(ctx.user.id)),
+  }),
+
+  adminBusiness: router({
+    listApplications: protectedProcedure.query(({ ctx }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); return business.listBusinessApplications(); }),
+    reviewApplication: protectedProcedure.input(z.object({ applicationId: z.number().int().positive(), status: z.enum(["changes_required", "approved", "suspended"]), reviewNote: z.string().trim().max(1000).optional() })).mutation(async ({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); await business.reviewBusinessApplication(ctx.user.id, input.applicationId, input.status, input.reviewNote); return { success: true } as const; }),
   }),
 
 });

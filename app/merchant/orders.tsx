@@ -5,11 +5,13 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "
 
 import { MerchantScreen, MerchantTopBar, QueueStatusPill, merchantStatus } from "@/components/merchant-ui";
 import { type MerchantOrder, type MerchantOrderStatus, useMerchantStore } from "@/lib/merchant-store";
+import { trpc } from "@/lib/trpc";
 
 const queueOrder: MerchantOrderStatus[] = ["new", "preparing", "ready", "outForDelivery"];
 
 export default function LiveOrdersScreen() {
   const { profile, hasHydrated, orders, hydrateMerchantSession, updateOrderStatus } = useMerchantStore();
+  const businessAccess = trpc.businessOperations.mine.useQuery(undefined, { retry: false });
 
   useEffect(() => {
     void hydrateMerchantSession();
@@ -23,8 +25,12 @@ export default function LiveOrdersScreen() {
   const orderedOrders = useMemo(() => [...activeOrders].sort((a, b) => queueOrder.indexOf(a.status) - queueOrder.indexOf(b.status)), [activeOrders]);
   const counts = useMemo(() => Object.fromEntries(queueOrder.map((status) => [status, activeOrders.filter((order) => order.status === status).length])) as Record<MerchantOrderStatus, number>, [activeOrders]);
 
-  if (!hasHydrated || !profile) {
+  if (businessAccess.isLoading || !hasHydrated || !profile) {
     return <MerchantScreen><View style={styles.loading}><ActivityIndicator size="small" color="#168A4A" /><Text style={styles.loadingText}>Opening your outlet…</Text></View></MerchantScreen>;
+  }
+
+  if (businessAccess.error) {
+    return <MerchantScreen><View style={styles.loading}><MaterialIcons name="lock" size={28} color="#064B2C" /><Text style={styles.loadingText}>Business approval is required before Live Orders can open.</Text><Pressable onPress={() => router.replace("/account/workspaces" as never)} style={styles.accessButton}><Text style={styles.accessText}>View application status</Text></Pressable></View></MerchantScreen>;
   }
 
   return (
@@ -74,6 +80,8 @@ function OrderCard({ order, onAccept }: { order: MerchantOrder; onAccept: () => 
 const styles = StyleSheet.create({
   loading: { flex: 1, alignItems: "center", justifyContent: "center", gap: 11 },
   loadingText: { color: "#5E6D63", fontSize: 13, lineHeight: 18, fontWeight: "700" },
+  accessButton: { marginTop: 4, paddingHorizontal: 13, paddingVertical: 10, borderRadius: 11, backgroundColor: "#E0F4E7" },
+  accessText: { color: "#064B2C", fontSize: 11, fontWeight: "900" },
   listContent: { paddingBottom: 22 },
   summaryRow: { padding: 14, flexDirection: "row", gap: 10, backgroundColor: "#FFFFFF", borderBottomWidth: 1, borderBottomColor: "#E5E9E4" },
   summaryTile: { flex: 1, minHeight: 83, borderRadius: 16, backgroundColor: "#F4F6F3", padding: 11, justifyContent: "space-between" },
