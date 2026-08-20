@@ -12,5 +12,5 @@
 - [x] Save a completed project checkpoint.
 - [x] Replace the oversized launcher icon with a checkpoint-safe branding asset.
 - [x] Save the final checkpoint for the completed mobile build.
-- [ ] Configure the user-provided GitHub repository as the project remote.
-- [ ] Push the completed Khana KarLo mobile project to GitHub.
+- [x] Configure the user-provided GitHub repository as the project remote.
+- [x] Push the completed Khana KarLo mobile project to GitHub.
