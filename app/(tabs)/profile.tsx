@@ -1,17 +1,19 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import { router } from "expo-router";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { KhanaKarLoMark } from "@/components/khana-karlo-mark";
 import { ScreenContainer } from "@/components/screen-container";
 
 const profileRows = [
+  { icon: "workspaces", title: "Khana KarLo workspaces", subtitle: "Customer, Business, and Rider access", message: "Manage role applications and switch only between approved workspaces.", route: "/account/workspaces" },
   { icon: "location-on", title: "Saved addresses", subtitle: "Home, Work", message: "Address management is ready to connect to a customer account." },
   { icon: "notifications", title: "Notifications", subtitle: "Order updates and offers", message: "Notification preferences will be stored when customer settings are connected." },
   { icon: "help", title: "Help center", subtitle: "FAQs, support, and feedback", message: "The production help centre will link order-specific support and FAQs." },
 ] as const;
 
 export default function ProfileScreen() {
-  return <ScreenContainer><View style={styles.screen}><Text style={styles.title}>Profile</Text><View style={styles.profileCard}><View style={styles.avatar}><Text style={styles.avatarText}>A</Text></View><View style={styles.profileText}><Text style={styles.name}>Ayesha Khan</Text><Text style={styles.phone}>+92 300 123 4567</Text></View><Pressable onPress={() => Alert.alert("Profile", "Profile editing will be connected when phone-based sign-in is enabled.")} style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}><MaterialIcons name="edit" size={18} color="#064B2C" /></Pressable></View><Text style={styles.sectionLabel}>YOUR ACCOUNT</Text>{profileRows.map((row) => <Pressable key={row.title} onPress={() => Alert.alert(row.title, row.message)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}><View style={styles.rowIcon}><MaterialIcons name={row.icon} size={20} color="#064B2C" /></View><View style={styles.rowText}><Text style={styles.rowTitle}>{row.title}</Text><Text style={styles.rowSub}>{row.subtitle}</Text></View><MaterialIcons name="chevron-right" size={23} color="#879187" /></Pressable>)}<View style={styles.brandFooter}><KhanaKarLoMark size={34} /><View><Text style={styles.footerTitle}>Khaana <Text style={styles.footerOrange}>KarLo</Text></Text><Text style={styles.footerSub}>Pakistan ka apna food app</Text></View></View></View></ScreenContainer>;
+  return <ScreenContainer><View style={styles.screen}><Text style={styles.title}>Profile</Text><View style={styles.profileCard}><View style={styles.avatar}><Text style={styles.avatarText}>A</Text></View><View style={styles.profileText}><Text style={styles.name}>Ayesha Khan</Text><Text style={styles.phone}>+92 300 123 4567</Text></View><Pressable onPress={() => Alert.alert("Profile", "Profile editing will be connected when phone-based sign-in is enabled.")} style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}><MaterialIcons name="edit" size={18} color="#064B2C" /></Pressable></View><Text style={styles.sectionLabel}>YOUR ACCOUNT</Text>{profileRows.map((row) => <Pressable key={row.title} onPress={() => "route" in row && row.route ? router.push(row.route as never) : Alert.alert(row.title, row.message)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}><View style={styles.rowIcon}><MaterialIcons name={row.icon} size={20} color="#064B2C" /></View><View style={styles.rowText}><Text style={styles.rowTitle}>{row.title}</Text><Text style={styles.rowSub}>{row.subtitle}</Text></View><MaterialIcons name="chevron-right" size={23} color="#879187" /></Pressable>)}<View style={styles.brandFooter}><KhanaKarLoMark size={34} /><View><Text style={styles.footerTitle}>Khaana <Text style={styles.footerOrange}>KarLo</Text></Text><Text style={styles.footerSub}>Pakistan ka apna food app</Text></View></View></View></ScreenContainer>;
 }
 
 const styles = StyleSheet.create({
@@ -36,4 +38,3 @@ const styles = StyleSheet.create({
   footerSub: { color: "#879187", fontSize: 10, lineHeight: 13, fontWeight: "700", marginTop: 1 },
   pressed: { opacity: 0.7, transform: [{ scale: 0.985 }] },
 });
-

@@ -43,3 +43,8 @@
 - [x] Audit the implemented Customer, Restaurant, and Rider application surfaces and state flow.
 - [x] Document the current architecture, implemented functionality, limitations, and role-specific screen inventory.
 - [x] Produce a prioritized missing-work roadmap and launch-readiness assessment.
+- [x] Define production domain schemas for accounts, role memberships, workspace applications, approvals, and audit events.
+- [x] Implement a server-backed one-account workspace membership and approval-state service.
+- [x] Add Account workspace UI for Customer, Khana KarLo Business, and Become a Rider application states.
+- [x] Add deterministic backend and client tests for role boundaries and workspace state transitions.
+- [x] Validate the production-foundation slice and save an updated project version.
