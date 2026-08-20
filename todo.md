@@ -77,3 +77,4 @@
 - [x] Fix the Customer-to-Workspace routing loop and route approved Business and Rider users to their operating dashboards.
 - [x] Refresh Expo Go from the latest workspace-routing revision and verify the served bundle.
 - [x] Eliminate the persistent post-registration workspace redirect loop.
+- [ ] Push the validated workspace-routing and preview-session repair to GitHub.
