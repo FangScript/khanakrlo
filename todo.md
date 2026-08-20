@@ -26,3 +26,6 @@
 - [x] Build a restaurant-specific Live Orders queue with operational order states.
 - [x] Build restaurant order detail, accept/reject, preparation, and ready-for-pickup controls.
 - [x] Validate the merchant workflow and save an updated project version.
+- [x] Build a Khana KarLo splash screen with the launcher logo and “Order • Track • Enjoy” tagline.
+- [x] Route launch through the splash screen before customer onboarding or the restored customer home.
+- [x] Validate the branded launch experience and save an updated project version.
