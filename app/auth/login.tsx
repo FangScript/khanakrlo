@@ -1,19 +1,22 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import { router } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
-import { startOAuthLogin } from "@/constants/oauth";
+import * as Auth from "@/lib/_core/auth";
+import { createMockGoogleUser } from "@/lib/mock-auth";
 
 export default function GoogleLoginScreen() {
-  const [isOpeningGoogle, setIsOpeningGoogle] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
-  const continueWithGoogle = async () => {
-    setIsOpeningGoogle(true);
+  const continueWithMockGoogle = async () => {
+    setIsSigningIn(true);
     try {
-      await startOAuthLogin();
+      await Auth.setUserInfo(createMockGoogleUser());
+      router.replace("/auth/phone" as never);
     } finally {
-      setIsOpeningGoogle(false);
+      setIsSigningIn(false);
     }
   };
 
@@ -26,13 +29,13 @@ export default function GoogleLoginScreen() {
           <Text style={styles.title}>Good food, made easy.</Text>
           <Text style={styles.subtitle}>Sign in to discover local favourites, track your delivery, and keep every order in one place.</Text>
 
-          <Pressable accessibilityRole="button" disabled={isOpeningGoogle} onPress={continueWithGoogle} style={({ pressed }) => [styles.googleButton, isOpeningGoogle && styles.googleButtonDisabled, pressed && !isOpeningGoogle && styles.pressed]}>
+          <Pressable accessibilityRole="button" disabled={isSigningIn} onPress={continueWithMockGoogle} style={({ pressed }) => [styles.googleButton, isSigningIn && styles.googleButtonDisabled, pressed && !isSigningIn && styles.pressed]}>
             <View style={styles.googleMark}><Text style={styles.googleMarkText}>G</Text></View>
-            <Text style={styles.googleButtonText}>{isOpeningGoogle ? "Opening Google…" : "Continue with Google"}</Text>
-            {isOpeningGoogle ? <ActivityIndicator size="small" color="#17683A" /> : <MaterialIcons name="arrow-forward" size={19} color="#17683A" />}
+            <Text style={styles.googleButtonText}>{isSigningIn ? "Signing in…" : "Continue with mock Google"}</Text>
+            {isSigningIn ? <ActivityIndicator size="small" color="#17683A" /> : <MaterialIcons name="arrow-forward" size={19} color="#17683A" />}
           </Pressable>
 
-          <View style={styles.notice}><MaterialIcons name="verified-user" size={19} color="#B66A00" /><Text style={styles.noticeText}>After Google sign-in, we’ll verify your phone number and ask for your delivery location.</Text></View>
+          <View style={styles.notice}><MaterialIcons name="science" size={19} color="#B66A00" /><Text style={styles.noticeText}>Preview mode: this mock Google sign-in opens phone verification and location setup without contacting Google.</Text></View>
         </View>
         <View style={styles.footer}><Text style={styles.footerText}>By continuing, you agree to Khana KarLo’s Terms of Service and Privacy Policy.</Text></View>
       </View>
