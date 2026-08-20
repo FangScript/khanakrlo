@@ -34,3 +34,5 @@
 - [x] Add OTP verification and location-permission/manual-location handling after customer registration.
 - [x] Build Restaurant and Rider profile screens with role-specific account information and actions.
 - [x] Validate the corrected startup, customer registration, Restaurant profile, and Rider profile flows.
+- [x] Commit the latest launch, registration, location, and role-profile changes to the project repository.
+- [x] Push the latest Khana KarLo project state to the existing GitHub main branch.
