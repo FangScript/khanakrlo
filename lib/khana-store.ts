@@ -24,12 +24,15 @@ type KhanaState = {
   lastOrder: PlacedOrder | null;
   customer: CustomerProfile | null;
   hasHydratedCustomer: boolean;
+  hasHydratedCart: boolean;
 };
 
 const CUSTOMER_STORAGE_KEY = "khana-karlo/customer-profile";
+const CART_STORAGE_KEY = "khana-karlo/customer-cart-v1";
 
-let state: KhanaState = { cart: [], lastOrder: null, customer: null, hasHydratedCustomer: false };
+let state: KhanaState = { cart: [], lastOrder: null, customer: null, hasHydratedCustomer: false, hasHydratedCart: false };
 let hydrationPromise: Promise<void> | null = null;
+let cartHydrationPromise: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
 function setState(next: KhanaState) {
@@ -46,15 +49,21 @@ function getSnapshot() {
   return state;
 }
 
+function persistCart(cart: CartLine[]) {
+  void AsyncStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+}
+
 function addItem(item: MenuItem, spice: string, addOns: AddOn[]) {
   const lineId = `${item.id}-${spice}-${addOns.map((addOn) => addOn.id).sort().join("-")}`;
   const existing = state.cart.find((line) => line.id === lineId);
 
   if (existing) {
-    setState({
+    const next = {
       ...state,
       cart: state.cart.map((line) => (line.id === lineId ? { ...line, quantity: line.quantity + 1 } : line)),
-    });
+    };
+    setState(next);
+    persistCart(next.cart);
     return;
   }
 
@@ -70,18 +79,24 @@ function addItem(item: MenuItem, spice: string, addOns: AddOn[]) {
     addOns,
   };
 
-  setState({ ...state, cart: [...state.cart, nextLine] });
+  const next = { ...state, cart: [...state.cart, nextLine] };
+  setState(next);
+  persistCart(next.cart);
 }
 
 function changeQuantity(lineId: string, difference: number) {
   const updated = state.cart
     .map((line) => (line.id === lineId ? { ...line, quantity: line.quantity + difference } : line))
     .filter((line) => line.quantity > 0);
-  setState({ ...state, cart: updated });
+  const next = { ...state, cart: updated };
+  setState(next);
+  persistCart(next.cart);
 }
 
 function clearCart() {
-  setState({ ...state, cart: [] });
+  const next = { ...state, cart: [] };
+  setState(next);
+  persistCart(next.cart);
 }
 
 function placeOrder(restaurantName: string, total: number) {
@@ -94,7 +109,9 @@ function placeOrder(restaurantName: string, total: number) {
     status: "preparing",
     createdAt: "Just now",
   };
-  setState({ ...state, cart: [], lastOrder: nextOrder });
+  const next = { ...state, cart: [], lastOrder: nextOrder };
+  setState(next);
+  persistCart(next.cart);
   return nextOrder;
 }
 
@@ -117,6 +134,25 @@ async function hydrateCustomerSession() {
   return hydrationPromise;
 }
 
+async function hydrateCart() {
+  if (state.hasHydratedCart) return;
+  if (cartHydrationPromise) return cartHydrationPromise;
+
+  cartHydrationPromise = (async () => {
+    try {
+      const persistedCart = await AsyncStorage.getItem(CART_STORAGE_KEY);
+      const cart = persistedCart ? (JSON.parse(persistedCart) as CartLine[]) : [];
+      setState({ ...state, cart: Array.isArray(cart) ? cart : [], hasHydratedCart: true });
+    } catch {
+      setState({ ...state, hasHydratedCart: true });
+    } finally {
+      cartHydrationPromise = null;
+    }
+  })();
+
+  return cartHydrationPromise;
+}
+
 function completeCustomerOnboarding(customer: CustomerProfile) {
   setState({ ...state, customer, hasHydratedCustomer: true });
   void AsyncStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify(customer));
@@ -135,6 +171,7 @@ export function useKhanaStore() {
     changeQuantity,
     clearCart,
     placeOrder,
+    hydrateCart,
     hydrateCustomerSession,
     completeCustomerOnboarding,
     clearCustomerSession,

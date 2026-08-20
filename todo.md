@@ -65,3 +65,6 @@
 - [x] Add optimistic Business menu-availability updates with rollback on mutation failure.
 - [x] Add subtle success feedback after customer, Business, and Rider order-state actions.
 - [x] Cache live discovery records locally and display the last successful result when offline.
+- [x] Persist customer cart contents locally so ordering can continue offline.
+- [x] Queue failed Business menu availability mutations and retry them after connectivity returns.
+- [x] Add visual real-time-ready order-status alerts for customer tracking and order updates.
