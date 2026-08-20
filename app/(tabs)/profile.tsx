@@ -4,6 +4,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { KhanaKarLoMark } from "@/components/khana-karlo-mark";
 import { ScreenContainer } from "@/components/screen-container";
+import { useKhanaStore } from "@/lib/khana-store";
 
 const profileRows = [
   { icon: "workspaces", title: "Khana KarLo workspaces", subtitle: "Customer, Business, and Rider access", message: "Manage role applications and switch only between approved workspaces.", route: "/account/workspaces" },
@@ -13,7 +14,11 @@ const profileRows = [
 ] as const;
 
 export default function ProfileScreen() {
-  return <ScreenContainer><View style={styles.screen}><Text style={styles.title}>Profile</Text><View style={styles.profileCard}><View style={styles.avatar}><Text style={styles.avatarText}>A</Text></View><View style={styles.profileText}><Text style={styles.name}>Ayesha Khan</Text><Text style={styles.phone}>+92 300 123 4567</Text></View><Pressable onPress={() => Alert.alert("Profile", "Profile editing will be connected when phone-based sign-in is enabled.")} style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}><MaterialIcons name="edit" size={18} color="#064B2C" /></Pressable></View><Text style={styles.sectionLabel}>YOUR ACCOUNT</Text>{profileRows.map((row) => <Pressable key={row.title} onPress={() => "route" in row && row.route ? router.push(row.route as never) : Alert.alert(row.title, row.message)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}><View style={styles.rowIcon}><MaterialIcons name={row.icon} size={20} color="#064B2C" /></View><View style={styles.rowText}><Text style={styles.rowTitle}>{row.title}</Text><Text style={styles.rowSub}>{row.subtitle}</Text></View><MaterialIcons name="chevron-right" size={23} color="#879187" /></Pressable>)}<View style={styles.brandFooter}><KhanaKarLoMark size={34} /><View><Text style={styles.footerTitle}>Khaana <Text style={styles.footerOrange}>KarLo</Text></Text><Text style={styles.footerSub}>Pakistan ka apna food app</Text></View></View></View></ScreenContainer>;
+  const { customer, clearCustomerSession } = useKhanaStore();
+  const name = customer?.name ?? "Customer";
+  const phone = customer?.phone ?? "";
+  const signOut = () => Alert.alert("Log out?", "You will need to sign in again to access your account.", [{ text: "Cancel", style: "cancel" }, { text: "Log out", style: "destructive", onPress: () => { clearCustomerSession(); router.replace("/auth/login" as never); } }]);
+  return <ScreenContainer><View style={styles.screen}><Text style={styles.title}>Profile</Text><View style={styles.profileCard}><View style={styles.avatar}><Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase()}</Text></View><View style={styles.profileText}><Text style={styles.name}>{name}</Text><Text style={styles.phone}>{phone}</Text></View><Pressable onPress={() => Alert.alert("Profile", "Profile editing will be connected when phone-based sign-in is enabled.")} style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}><MaterialIcons name="edit" size={18} color="#064B2C" /></Pressable></View><Text style={styles.sectionLabel}>YOUR ACCOUNT</Text>{profileRows.map((row) => <Pressable key={row.title} onPress={() => "route" in row && row.route ? router.push(row.route as never) : Alert.alert(row.title, row.message)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}><View style={styles.rowIcon}><MaterialIcons name={row.icon} size={20} color="#064B2C" /></View><View style={styles.rowText}><Text style={styles.rowTitle}>{row.title}</Text><Text style={styles.rowSub}>{row.subtitle}</Text></View><MaterialIcons name="chevron-right" size={23} color="#879187" /></Pressable>)}<Pressable accessibilityRole="button" onPress={signOut} style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}><MaterialIcons name="logout" size={19} color="#B52C25" /><Text style={styles.logoutText}>Log out</Text></Pressable><View style={styles.brandFooter}><KhanaKarLoMark size={34} /><View><Text style={styles.footerTitle}>Khaana <Text style={styles.footerOrange}>KarLo</Text></Text><Text style={styles.footerSub}>Pakistan ka apna food app</Text></View></View></View></ScreenContainer>;
 }
 
 const styles = StyleSheet.create({
@@ -32,6 +37,8 @@ const styles = StyleSheet.create({
   rowText: { flex: 1 },
   rowTitle: { color: "#17251D", fontSize: 13, lineHeight: 17, fontWeight: "900" },
   rowSub: { color: "#6C7A70", fontSize: 10, lineHeight: 14, fontWeight: "600", marginTop: 1 },
+  logoutButton: { minHeight: 52, marginTop: 7, borderRadius: 16, borderWidth: 1, borderColor: "#F1C7C1", backgroundColor: "#FFF6F4", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  logoutText: { color: "#B52C25", fontSize: 12, lineHeight: 16, fontWeight: "900" },
   brandFooter: { marginTop: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   footerTitle: { color: "#064B2C", fontSize: 17, lineHeight: 20, fontWeight: "900" },
   footerOrange: { color: "#FF6B00" },
