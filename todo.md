@@ -14,3 +14,7 @@
 - [x] Save the final checkpoint for the completed mobile build.
 - [x] Configure the user-provided GitHub repository as the project remote.
 - [x] Push the completed Khana KarLo mobile project to GitHub.
+- [x] Research food-delivery application patterns across customer, restaurant/cloud-kitchen, and rider roles.
+- [x] Define separate login, signup, verification, and approval flows for each role.
+- [x] Produce a complete role-specific screen inventory, navigation model, and MVP/V2 prioritization.
+- [x] Document recommended next implementation milestones for the multi-application platform.
