@@ -7,6 +7,7 @@ import { MerchantScreen, MerchantTopBar, QueueStatusPill, merchantStatus } from 
 import { SuccessToast, useSuccessToast } from "@/components/success-toast";
 import { type MerchantOrder, type MerchantOrderStatus, useMerchantStore } from "@/lib/merchant-store";
 import { trpc } from "@/lib/trpc";
+import { useWorkspacePreview } from "@/lib/workspace-preview";
 
 const queueOrder: MerchantOrderStatus[] = ["new", "preparing", "ready", "outForDelivery"];
 
@@ -14,6 +15,7 @@ export default function LiveOrdersScreen() {
   const { profile, hasHydrated, orders, hydrateMerchantSession, updateOrderStatus } = useMerchantStore();
   const { successMessage, showSuccess } = useSuccessToast();
   const businessAccess = trpc.businessOperations.mine.useQuery(undefined, { retry: false });
+  const { activeWorkspace } = useWorkspacePreview();
 
   useEffect(() => {
     void hydrateMerchantSession();
@@ -31,7 +33,7 @@ export default function LiveOrdersScreen() {
     return <MerchantScreen><View style={styles.loading}><ActivityIndicator size="small" color="#168A4A" /><Text style={styles.loadingText}>Opening your outlet…</Text></View></MerchantScreen>;
   }
 
-  if (businessAccess.error) {
+  if (businessAccess.error && activeWorkspace !== "business") {
     return <MerchantScreen><View style={styles.loading}><MaterialIcons name="lock" size={28} color="#064B2C" /><Text style={styles.loadingText}>Business approval is required before Live Orders can open.</Text><Pressable onPress={() => router.replace("/account/workspaces" as never)} style={styles.accessButton}><Text style={styles.accessText}>View application status</Text></Pressable></View></MerchantScreen>;
   }
 

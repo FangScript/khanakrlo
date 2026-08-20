@@ -1,10 +1,13 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { useKhanaStore } from "@/lib/khana-store";
+import { useMerchantStore } from "@/lib/merchant-store";
 import { trpc } from "@/lib/trpc";
+import { getPreviewWorkspaceDestination, useWorkspacePreview } from "@/lib/workspace-preview";
 import type { BusinessType, WorkspaceApplicationType, WorkspaceAvailabilityStatus, WorkspaceType } from "@/shared/workspace";
 
 type WorkspaceCard = {
@@ -38,6 +41,9 @@ const statusColors: Record<WorkspaceAvailabilityStatus, { bg: string; text: stri
 
 export default function WorkspacesScreen() {
   const workspaceQuery = trpc.workspace.mine.useQuery(undefined, { retry: false });
+  const { customer, hasHydratedCustomer, hydrateCustomerSession } = useKhanaStore();
+  const { completeMerchantSignIn } = useMerchantStore();
+  const { setActiveWorkspace } = useWorkspacePreview();
   const saveApplication = trpc.workspace.saveApplication.useMutation({ onSuccess: () => workspaceQuery.refetch() });
   const [applyingFor, setApplyingFor] = useState<WorkspaceApplicationType | null>(null);
   const [businessType, setBusinessType] = useState<BusinessType>("restaurant");
@@ -47,6 +53,8 @@ export default function WorkspacesScreen() {
 
   const cards = useMemo(() => (workspaceQuery.data ?? []) as WorkspaceCard[], [workspaceQuery.data]);
   const isUnauthenticated = workspaceQuery.error?.data?.code === "UNAUTHORIZED" || workspaceQuery.error?.message?.toLowerCase().includes("unauthorized");
+
+  useEffect(() => { void hydrateCustomerSession(); }, [hydrateCustomerSession]);
 
   const startApplication = (workspaceType: WorkspaceApplicationType, card?: WorkspaceCard) => {
     setApplyingFor(workspaceType);
@@ -67,13 +75,23 @@ export default function WorkspacesScreen() {
     }
   };
 
-  if (workspaceQuery.isLoading) return <ScreenContainer><View style={styles.loading}><ActivityIndicator color="#168A4A" /><Text style={styles.loadingText}>Loading your workspaces…</Text></View></ScreenContainer>;
+  if (workspaceQuery.isLoading && !hasHydratedCustomer) return <ScreenContainer><View style={styles.loading}><ActivityIndicator color="#168A4A" /><Text style={styles.loadingText}>Loading your workspaces…</Text></View></ScreenContainer>;
 
   if (isUnauthenticated) {
+    if (customer) return <PreviewWorkspaceHub customerName={customer.name} customerPhone={customer.phone} onOpen={(workspace) => { setActiveWorkspace(workspace); if (workspace === "business") completeMerchantSignIn(customer.phone); router.push(getPreviewWorkspaceDestination(workspace) as never); }} />;
     return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.emptyScreen}><View style={styles.lockIcon}><MaterialIcons name="lock" size={27} color="#064B2C" /></View><Text style={styles.emptyTitle}>Sign in to manage workspaces</Text><Text style={styles.emptyCopy}>Use one Khana KarLo account for Customer, Business, and Rider access. Business and Rider workspaces become active after approval.</Text><Pressable accessibilityRole="button" onPress={() => router.replace("/auth/login" as never)} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}><Text style={styles.primaryText}>Sign in to continue</Text><MaterialIcons name="arrow-forward" size={19} color="#FFFFFF" /></Pressable></View></ScreenContainer>;
   }
 
   return <ScreenContainer edges={["top", "bottom", "left", "right"]}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled"><View style={styles.header}><Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.back}><MaterialIcons name="arrow-back" size={21} color="#064B2C" /></Pressable><View><Text style={styles.kicker}>ONE ACCOUNT</Text><Text style={styles.title}>Your workspaces</Text></View></View><Text style={styles.intro}>Customer access is ready by default. Apply for Business or Rider access when you are ready to operate with Khana KarLo.</Text>{cards.map((card) => <WorkspaceCardView key={card.workspaceType} card={card} onApply={() => card.workspaceType === "business" ? router.push("/business/onboarding" as never) : startApplication(card.workspaceType as WorkspaceApplicationType, card)} />)}{applyingFor ? <ApplicationForm workspaceType={applyingFor} businessType={businessType} onBusinessType={setBusinessType} displayName={displayName} onDisplayName={setDisplayName} phoneE164={phoneE164} onPhoneE164={setPhoneE164} city={city} onCity={setCity} submitting={saveApplication.isPending} onSave={() => submit(false)} onSubmit={() => submit(true)} onClose={() => setApplyingFor(null)} /> : null}</ScrollView></ScreenContainer>;
+}
+
+function PreviewWorkspaceHub({ customerName, customerPhone, onOpen }: { customerName: string; customerPhone: string; onOpen: (workspace: "customer" | "business" | "rider") => void }) {
+  const cards: { workspace: "customer" | "business" | "rider"; icon: keyof typeof MaterialIcons.glyphMap; title: string; copy: string; action: string }[] = [
+    { workspace: "customer", icon: "restaurant", title: "Customer", copy: "Browse kitchens, manage your cart, and track deliveries.", action: "Open Customer home" },
+    { workspace: "business", icon: "storefront", title: "Khana KarLo Business", copy: "Restaurant management, menu controls, and the live order queue.", action: "Open Restaurant management" },
+    { workspace: "rider", icon: "directions-bike", title: "Rider", copy: "Availability controls, delivery offers, and proof-of-delivery workflows.", action: "Open Rider dashboard" },
+  ];
+  return <ScreenContainer edges={["top", "bottom", "left", "right"]}><ScrollView contentContainerStyle={styles.content}><View style={styles.header}><Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.back}><MaterialIcons name="arrow-back" size={21} color="#064B2C" /></Pressable><View><Text style={styles.kicker}>ONE ACCOUNT</Text><Text style={styles.title}>Your workspaces</Text></View></View><Text style={styles.intro}>Welcome, {customerName}. Your phone registration is complete. Select where you want to operate; this will not restart registration.</Text>{cards.map((card) => <View key={card.workspace} style={styles.workspaceCard}><View style={styles.workspaceTop}><View style={styles.workspaceIcon}><MaterialIcons name={card.icon} size={23} color="#064B2C" /></View><View style={styles.workspaceCopy}><Text style={styles.workspaceTitle}>{card.title}</Text><Text style={styles.workspaceDescription}>{card.copy}</Text></View></View><View style={styles.cardFooter}><Text style={styles.waitText}>{card.workspace === "business" ? `Manager session uses ${customerPhone}` : "Operational preview available"}</Text><Pressable accessibilityRole="button" onPress={() => onOpen(card.workspace)} style={({ pressed }) => [styles.openButton, pressed && styles.pressed]}><Text style={styles.openText}>{card.action}</Text><MaterialIcons name="arrow-forward" size={16} color="#FFFFFF" /></Pressable></View></View>)}<Text style={styles.waitText}>Live production approval remains enforced for server-connected Business and Rider accounts.</Text></ScrollView></ScreenContainer>;
 }
 
 function WorkspaceCardView({ card, onApply }: { card: WorkspaceCard; onApply: () => void }) {

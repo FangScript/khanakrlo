@@ -73,3 +73,5 @@
 - [x] Add a Customer Profile logout action that clears the local session and returns to sign-in.
 - [x] Replace the preview Google sign-in dependency with a clearly labeled mock customer sign-in path.
 - [x] Remove Google entry and make mobile-number input the direct Customer sign-in screen.
+- [x] Refresh the Expo preview so it serves the latest mobile-number-first Customer entry screen.
+- [x] Fix the Customer-to-Workspace routing loop and route approved Business and Rider users to their operating dashboards.
