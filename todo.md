@@ -68,3 +68,4 @@
 - [x] Persist customer cart contents locally so ordering can continue offline.
 - [x] Queue failed Business menu availability mutations and retry them after connectivity returns.
 - [x] Add visual real-time-ready order-status alerts for customer tracking and order updates.
+- [x] Diagnose and fix the reported mobile application error.
