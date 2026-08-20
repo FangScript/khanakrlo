@@ -75,3 +75,5 @@
 - [x] Remove Google entry and make mobile-number input the direct Customer sign-in screen.
 - [x] Refresh the Expo preview so it serves the latest mobile-number-first Customer entry screen.
 - [x] Fix the Customer-to-Workspace routing loop and route approved Business and Rider users to their operating dashboards.
+- [x] Refresh Expo Go from the latest workspace-routing revision and verify the served bundle.
+- [x] Eliminate the persistent post-registration workspace redirect loop.

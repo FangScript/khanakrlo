@@ -1,19 +1,21 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router } from "expo-router";
+import { useEffect } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { BusinessWorkspaceSkeleton } from "@/components/loading-skeleton";
 import { ScreenContainer } from "@/components/screen-container";
+import { useKhanaStore } from "@/lib/khana-store";
 import { trpc } from "@/lib/trpc";
-import { useWorkspacePreview } from "@/lib/workspace-preview";
 
 export default function BusinessHomeScreen() {
-  const { activeWorkspace } = useWorkspacePreview();
+  const { customer, hasHydratedCustomer, hydrateCustomerSession } = useKhanaStore();
   const operations = trpc.businessOperations.mine.useQuery(undefined, { retry: false });
   const catalogue = trpc.businessOperations.catalogue.useQuery(undefined, { retry: false });
   const setLiveStatus = trpc.businessOperations.setLiveStatus.useMutation({ onSuccess: () => { void operations.refetch(); } });
-  if (operations.isLoading) return <ScreenContainer edges={["top", "bottom", "left", "right"]}><BusinessWorkspaceSkeleton label="Loading your authorised Business workspace" /></ScreenContainer>;
-  if (operations.error && activeWorkspace !== "business") return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.center}><View style={styles.lock}><MaterialIcons name="lock" size={27} color="#064B2C" /></View><Text style={styles.title}>Business approval required</Text><Text style={styles.copy}>Your Restaurant or Cloud Kitchen operations open only after Khana KarLo approval.</Text><Pressable onPress={() => router.replace("/account/workspaces" as never)} style={styles.primary}><Text style={styles.primaryText}>View application status</Text></Pressable></View></ScreenContainer>;
+  useEffect(() => { void hydrateCustomerSession(); }, [hydrateCustomerSession]);
+  if (operations.isLoading || (operations.error && !hasHydratedCustomer)) return <ScreenContainer edges={["top", "bottom", "left", "right"]}><BusinessWorkspaceSkeleton label="Loading your authorised Business workspace" /></ScreenContainer>;
+  if (operations.error && !customer) return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.center}><View style={styles.lock}><MaterialIcons name="lock" size={27} color="#064B2C" /></View><Text style={styles.title}>Business approval required</Text><Text style={styles.copy}>Your Restaurant or Cloud Kitchen operations open only after Khana KarLo approval.</Text><Pressable onPress={() => router.replace("/account/workspaces" as never)} style={styles.primary}><Text style={styles.primaryText}>View application status</Text></Pressable></View></ScreenContainer>;
   if (operations.error) return <PreviewBusinessDashboard />;
   if (!operations.data) return <ScreenContainer edges={["top", "bottom", "left", "right"]}><BusinessWorkspaceSkeleton label="Preparing your Business workspace" /></ScreenContainer>;
   const data = operations.data; const kitchen = data.kitchens[0]; const outlet = data.outlets[0]; const isKitchen = Boolean(kitchen); const itemCount = catalogue.data?.items.length ?? 0; const availableCount = catalogue.data?.items.filter((item) => item.isAvailable).length ?? 0; const live = data.organisation.status === "live";
