@@ -16,7 +16,7 @@ export default function HomeScreen() {
   }, [hydrateCustomerSession]);
 
   useEffect(() => {
-    if (hasHydratedCustomer && !customer) router.replace("/auth/welcome" as never);
+    if (hasHydratedCustomer && !customer) router.replace("/auth/login" as never);
   }, [customer, hasHydratedCustomer]);
 
   if (!hasHydratedCustomer || !customer) {

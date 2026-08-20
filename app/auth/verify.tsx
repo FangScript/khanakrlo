@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 
 import { OnboardingFrame, PrimaryButton, onboardingStyles } from "@/components/onboarding-ui";
+import { getPostOtpRegistrationDestination } from "@/lib/registration-routing";
 
 export default function VerifyPhoneScreen() {
   const params = useLocalSearchParams<{ phone?: string }>();
@@ -12,7 +13,7 @@ export default function VerifyPhoneScreen() {
   const formattedPhone = useMemo(() => `+92 ${phone.slice(0, 3)} ${phone.slice(3, 6)} ${phone.slice(6)}`.trim(), [phone]);
 
   return (
-    <OnboardingFrame step={2} title="Confirm it’s you." subtitle={`We sent a 6-digit code to ${formattedPhone}.`} onBack={() => router.back()}>
+    <OnboardingFrame step={3} title="Confirm it’s you." subtitle={`We sent a 6-digit code to ${formattedPhone}.`} onBack={() => router.back()}>
       <View style={onboardingStyles.callout}>
         <MaterialIcons name="sms" size={21} color="#B66A00" />
         <Text style={onboardingStyles.calloutText}>Keep this screen open while your verification message arrives.</Text>
@@ -36,7 +37,7 @@ export default function VerifyPhoneScreen() {
       <View style={onboardingStyles.demoBadge}><Text style={onboardingStyles.demoBadgeText}>Preview mode: use any 6 digits</Text></View>
 
       <View style={onboardingStyles.footer}>
-        <PrimaryButton label="Verify number" disabled={code.length !== 6} onPress={() => router.replace(`/auth/profile?phone=${phone}` as never)} icon="check" />
+        <PrimaryButton label="Verify number" disabled={code.length !== 6} onPress={() => router.replace(getPostOtpRegistrationDestination(phone) as never)} icon="check" />
       </View>
     </OnboardingFrame>
   );

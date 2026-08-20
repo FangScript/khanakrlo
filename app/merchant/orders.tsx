@@ -36,7 +36,7 @@ export default function LiveOrdersScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <>
-            <MerchantTopBar outletName={profile.outletName} />
+            <MerchantTopBar outletName={profile.outletName} onPressAvatar={() => router.push("/merchant/profile" as never)} />
             <View style={styles.summaryRow}>
               <SummaryTile label="New" count={counts.new} color="#F3A93B" icon="notifications-active" />
               <SummaryTile label="Cooking" count={counts.preparing} color="#4B81CE" icon="soup-kitchen" />

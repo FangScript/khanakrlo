@@ -29,3 +29,8 @@
 - [x] Build a Khana KarLo splash screen with the launcher logo and “Order • Track • Enjoy” tagline.
 - [x] Route launch through the splash screen before customer onboarding or the restored customer home.
 - [x] Validate the branded launch experience and save an updated project version.
+- [x] Correct root launch routing so the splash screen is always the first in-app screen.
+- [x] Build a Google-first customer sign-in entry screen and post-Google phone-number registration sequence.
+- [x] Add OTP verification and location-permission/manual-location handling after customer registration.
+- [x] Build Restaurant and Rider profile screens with role-specific account information and actions.
+- [x] Validate the corrected startup, customer registration, Restaurant profile, and Rider profile flows.

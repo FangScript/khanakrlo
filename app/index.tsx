@@ -1,6 +1,6 @@
 import { router } from "expo-router";
-import { useEffect, useRef } from "react";
-import { Animated, Easing, Image, StyleSheet, Text, View } from "react-native";
+import { useEffect } from "react";
+import { Image, StyleSheet, Text, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { getCustomerLaunchDestination } from "@/lib/launch-routing";
@@ -10,19 +10,9 @@ const SPLASH_DURATION_MS = 1450;
 
 export default function LaunchSplashScreen() {
   const { customer, hasHydratedCustomer, hydrateCustomerSession } = useKhanaStore();
-  const logoScale = useRef(new Animated.Value(0.9)).current;
-  const contentOpacity = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
     void hydrateCustomerSession();
   }, [hydrateCustomerSession]);
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(logoScale, { toValue: 1, duration: 520, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(contentOpacity, { toValue: 1, duration: 420, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-    ]).start();
-  }, [contentOpacity, logoScale]);
 
   useEffect(() => {
     if (!hasHydratedCustomer) return;
@@ -35,12 +25,12 @@ export default function LaunchSplashScreen() {
       <View style={styles.screen}>
         <View style={styles.glowLarge} />
         <View style={styles.glowSmall} />
-        <Animated.View style={[styles.content, { opacity: contentOpacity, transform: [{ scale: logoScale }] }]}>
+        <View style={styles.content}>
           <View style={styles.logoHalo}><Image source={require("@/assets/images/icon.png")} style={styles.logo} resizeMode="contain" /></View>
           <Text style={styles.title}>Khana KarLo</Text>
           <View style={styles.taglineRow}><View style={styles.taglineLine} /><Text style={styles.tagline}>ORDER  •  TRACK  •  ENJOY</Text><View style={styles.taglineLine} /></View>
-        </Animated.View>
-        <View style={styles.footer}><View style={styles.loaderTrack}><Animated.View style={[styles.loaderFill, { opacity: contentOpacity }]} /></View><Text style={styles.footerText}>Food, delivered your way.</Text></View>
+        </View>
+        <View style={styles.footer}><View style={styles.loaderTrack}><View style={styles.loaderFill} /></View><Text style={styles.footerText}>Food, delivered your way.</Text></View>
       </View>
     </ScreenContainer>
   );
