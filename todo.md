@@ -40,3 +40,6 @@
 - [x] Build rider delivery detail with pickup, navigation, proof-of-delivery, and completion controls.
 - [x] Add guarded rider delivery-status transitions with deterministic workflow tests.
 - [x] Validate the Rider application workflow and save an updated project version.
+- [x] Audit the implemented Customer, Restaurant, and Rider application surfaces and state flow.
+- [x] Document the current architecture, implemented functionality, limitations, and role-specific screen inventory.
+- [x] Produce a prioritized missing-work roadmap and launch-readiness assessment.
