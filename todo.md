@@ -62,3 +62,6 @@
 - [x] Build Customer discovery feed using approved live Business records with Restaurant and Cloud Kitchen filters.
 - [x] Add deterministic catalogue and discovery tests and validate the integrated production slice.
 - [x] Add branded animated skeleton loading states for Customer discovery and Business data-fetching views.
+- [x] Add optimistic Business menu-availability updates with rollback on mutation failure.
+- [x] Add subtle success feedback after customer, Business, and Rider order-state actions.
+- [x] Cache live discovery records locally and display the last successful result when offline.

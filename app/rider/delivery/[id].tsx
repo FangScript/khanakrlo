@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { SuccessToast, useSuccessToast } from "@/components/success-toast";
 import { getNextRiderStatus } from "@/lib/rider-delivery-workflow";
 import { type RiderDeliveryStatus, useRiderStore } from "@/lib/rider-store";
 
@@ -23,6 +24,7 @@ export default function RiderDeliveryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { hasHydrated, hydrateRiderSession, getDelivery, updateDeliveryStatus } = useRiderStore();
   const [proofConfirmed, setProofConfirmed] = useState(false);
+  const { successMessage, showSuccess } = useSuccessToast();
 
   useEffect(() => { void hydrateRiderSession(); }, [hydrateRiderSession]);
   const delivery = getDelivery(id ?? "");
@@ -52,12 +54,13 @@ export default function RiderDeliveryDetailScreen() {
       return;
     }
     updateDeliveryStatus(delivery.id, nextStatus);
-    if (nextStatus === "delivered") router.replace("/rider" as never);
+    showSuccess(nextStatus === "delivered" ? "Delivery completed. Earnings have been recorded." : "Delivery status updated successfully");
+    if (nextStatus === "delivered") setTimeout(() => router.replace("/rider" as never), 750);
   };
 
   return (
     <ScreenContainer edges={["top", "bottom", "left", "right"]}>
-      <View style={styles.screen}>
+      <View style={styles.screen}><SuccessToast message={successMessage} />
         <View style={styles.header}><Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.back}><MaterialIcons name="arrow-back" size={21} color="#064B2C" /></Pressable><View style={styles.headerCopy}><Text style={styles.orderNumber}>{delivery.orderNumber}</Text><Text style={styles.headerTitle}>{copy.label}</Text></View><View style={styles.earning}><Text style={styles.earningText}>+{formatRupees(delivery.estimatedEarning)}</Text><Text style={styles.earningLabel}>EARNING</Text></View></View>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.statusCard}><View style={styles.statusIcon}><MaterialIcons name={delivery.status === "delivered" ? "check" : "local-shipping"} size={23} color="#FFFFFF" /></View><View style={styles.statusCopy}><Text style={styles.statusTitle}>{copy.label}</Text><Text style={styles.statusDetail}>{copy.detail}</Text></View></View>
@@ -65,7 +68,7 @@ export default function RiderDeliveryDetailScreen() {
           <View style={styles.infoCard}><View style={styles.infoRow}><MaterialIcons name="shopping-bag" size={19} color="#17683A" /><View style={{ flex: 1 }}><Text style={styles.infoTitle}>Order items</Text><Text style={styles.infoDetail}>{delivery.items.join(" · ")}</Text></View></View><View style={styles.infoBorder} /><View style={styles.infoRow}><MaterialIcons name={delivery.cashToCollect > 0 ? "payments" : "credit-card"} size={19} color="#B66A00" /><View style={{ flex: 1 }}><Text style={styles.infoTitle}>{delivery.cashToCollect > 0 ? "Cash to collect" : "Payment received"}</Text><Text style={styles.infoDetail}>{delivery.cashToCollect > 0 ? formatRupees(delivery.cashToCollect) : "Paid online"}</Text></View></View>{delivery.note ? <><View style={styles.infoBorder} /><View style={styles.infoRow}><MaterialIcons name="sticky-note-2" size={19} color="#825E18" /><View style={{ flex: 1 }}><Text style={styles.infoTitle}>Customer note</Text><Text style={styles.infoDetail}>{delivery.note}</Text></View></View></> : null}</View>
           {isPickedUp ? <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: proofConfirmed }} onPress={() => setProofConfirmed((value) => !value)} style={[styles.proofCard, proofConfirmed && styles.proofCardChecked]}><View style={[styles.proofCheck, proofConfirmed && styles.proofCheckChecked]}>{proofConfirmed ? <MaterialIcons name="check" size={17} color="#FFFFFF" /> : null}</View><View style={{ flex: 1 }}><Text style={styles.proofTitle}>Proof of delivery confirmed</Text><Text style={styles.proofText}>I verified the customer handoff and collected cash, if required.</Text></View></Pressable> : null}
         </ScrollView>
-        {isOffered ? <View style={styles.offerActions}><Pressable accessibilityRole="button" onPress={() => { updateDeliveryStatus(delivery.id, "declined"); router.replace("/rider" as never); }} style={({ pressed }) => [styles.declineButton, pressed && styles.pressed]}><Text style={styles.declineText}>Decline</Text></Pressable><Pressable accessibilityRole="button" onPress={advance} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}><Text style={styles.primaryText}>{copy.action}</Text><MaterialIcons name="arrow-forward" size={19} color="#FFFFFF" /></Pressable></View> : nextStatus ? <View style={styles.footer}><Pressable accessibilityRole="button" onPress={advance} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}><Text style={styles.primaryText}>{copy.action}</Text><MaterialIcons name="arrow-forward" size={19} color="#FFFFFF" /></Pressable></View> : <View style={styles.footer}><View style={styles.completePill}><MaterialIcons name="task-alt" size={19} color="#17683A" /><Text style={styles.completeText}>{copy.label}</Text></View></View>}
+        {isOffered ? <View style={styles.offerActions}><Pressable accessibilityRole="button" onPress={() => { updateDeliveryStatus(delivery.id, "declined"); showSuccess("Delivery request declined"); setTimeout(() => router.replace("/rider" as never), 500); }} style={({ pressed }) => [styles.declineButton, pressed && styles.pressed]}><Text style={styles.declineText}>Decline</Text></Pressable><Pressable accessibilityRole="button" onPress={advance} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}><Text style={styles.primaryText}>{copy.action}</Text><MaterialIcons name="arrow-forward" size={19} color="#FFFFFF" /></Pressable></View> : nextStatus ? <View style={styles.footer}><Pressable accessibilityRole="button" onPress={advance} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}><Text style={styles.primaryText}>{copy.action}</Text><MaterialIcons name="arrow-forward" size={19} color="#FFFFFF" /></Pressable></View> : <View style={styles.footer}><View style={styles.completePill}><MaterialIcons name="task-alt" size={19} color="#17683A" /><Text style={styles.completeText}>{copy.label}</Text></View></View>}
       </View>
     </ScreenContainer>
   );

@@ -4,6 +4,7 @@ import { useEffect, useMemo } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { MerchantScreen, MerchantTopBar, QueueStatusPill, merchantStatus } from "@/components/merchant-ui";
+import { SuccessToast, useSuccessToast } from "@/components/success-toast";
 import { type MerchantOrder, type MerchantOrderStatus, useMerchantStore } from "@/lib/merchant-store";
 import { trpc } from "@/lib/trpc";
 
@@ -11,6 +12,7 @@ const queueOrder: MerchantOrderStatus[] = ["new", "preparing", "ready", "outForD
 
 export default function LiveOrdersScreen() {
   const { profile, hasHydrated, orders, hydrateMerchantSession, updateOrderStatus } = useMerchantStore();
+  const { successMessage, showSuccess } = useSuccessToast();
   const businessAccess = trpc.businessOperations.mine.useQuery(undefined, { retry: false });
 
   useEffect(() => {
@@ -54,9 +56,9 @@ export default function LiveOrdersScreen() {
             </View>
           </>
         }
-        renderItem={({ item }) => <OrderCard order={item} onAccept={() => updateOrderStatus(item.id, "preparing")} />}
+        renderItem={({ item }) => <OrderCard order={item} onAccept={() => { updateOrderStatus(item.id, "preparing"); showSuccess(`${item.id} accepted and moved to preparation`); }} />}
         ListFooterComponent={<View style={{ height: 30 }} />}
-      />
+      /><SuccessToast message={successMessage} />
     </MerchantScreen>
   );
 }
