@@ -22,3 +22,7 @@
 - [x] Build customer profile basics and delivery-location onboarding screens.
 - [x] Connect onboarding completion to the existing customer home flow with local session state.
 - [x] Validate the customer onboarding experience and save an updated project version.
+- [x] Build merchant phone sign-in and verification entry screens.
+- [x] Build a restaurant-specific Live Orders queue with operational order states.
+- [x] Build restaurant order detail, accept/reject, preparation, and ready-for-pickup controls.
+- [x] Validate the merchant workflow and save an updated project version.
