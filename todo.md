@@ -36,3 +36,7 @@
 - [x] Validate the corrected startup, customer registration, Restaurant profile, and Rider profile flows.
 - [x] Commit the latest launch, registration, location, and role-profile changes to the project repository.
 - [x] Push the latest Khana KarLo project state to the existing GitHub main branch.
+- [x] Build the Rider availability dashboard and incoming delivery assignment queue.
+- [x] Build rider delivery detail with pickup, navigation, proof-of-delivery, and completion controls.
+- [x] Add guarded rider delivery-status transitions with deterministic workflow tests.
+- [x] Validate the Rider application workflow and save an updated project version.
