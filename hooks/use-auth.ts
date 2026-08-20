@@ -1,6 +1,5 @@
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
-import { isMockGoogleUser } from "@/lib/mock-auth";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform } from "react-native";
 
@@ -22,11 +21,6 @@ export function useAuth(options?: UseAuthOptions) {
 
       // Web platform: use cookie-based auth, fetch user from API
       if (Platform.OS === "web") {
-        const cachedUser = await Auth.getUserInfo();
-        if (isMockGoogleUser(cachedUser)) {
-          setUser(cachedUser);
-          return;
-        }
         console.log("[useAuth] Web platform: fetching user from API...");
         const apiUser = await Api.getMe();
         console.log("[useAuth] API user response:", apiUser);

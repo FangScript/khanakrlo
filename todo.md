@@ -72,3 +72,4 @@
 - [x] Defer privacy-aware production crash reporting until a provider account and valid DSN are available.
 - [x] Add a Customer Profile logout action that clears the local session and returns to sign-in.
 - [x] Replace the preview Google sign-in dependency with a clearly labeled mock customer sign-in path.
+- [x] Remove Google entry and make mobile-number input the direct Customer sign-in screen.
