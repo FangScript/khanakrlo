@@ -61,3 +61,4 @@
 - [x] Build multi-item category, menu item, modifier, price, availability, and edit interfaces for approved Businesses.
 - [x] Build Customer discovery feed using approved live Business records with Restaurant and Cloud Kitchen filters.
 - [x] Add deterministic catalogue and discovery tests and validate the integrated production slice.
+- [x] Add branded animated skeleton loading states for Customer discovery and Business data-fetching views.
