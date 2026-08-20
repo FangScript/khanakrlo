@@ -65,6 +65,18 @@ export const appRouter = router({
 
   businessOperations: router({
     mine: protectedProcedure.query(({ ctx }) => business.getMyBusinessOperations(ctx.user.id)),
+    catalogue: protectedProcedure.query(({ ctx }) => business.getManagedCatalogue(ctx.user.id)),
+    createCategory: protectedProcedure.input(z.object({ name: z.string().trim().min(1).max(120), scopeId: z.number().int().positive().optional(), sortOrder: z.number().int().min(0).max(999).optional() })).mutation(({ ctx, input }) => business.createCatalogueCategory(ctx.user.id, input)),
+    updateCategory: protectedProcedure.input(z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(1).max(120), sortOrder: z.number().int().min(0).max(999), isActive: z.boolean() })).mutation(({ ctx, input }) => business.updateCatalogueCategory(ctx.user.id, input)),
+    createItem: protectedProcedure.input(z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(1).max(160), description: z.string().trim().max(1000).optional(), priceMinor: z.number().int().min(0), prepTimeMinutes: z.number().int().min(1).max(1440) })).mutation(({ ctx, input }) => business.createCatalogueItem(ctx.user.id, input)),
+    updateItem: protectedProcedure.input(z.object({ itemId: z.number().int().positive(), name: z.string().trim().min(1).max(160), description: z.string().trim().max(1000).optional(), priceMinor: z.number().int().min(0), prepTimeMinutes: z.number().int().min(1).max(1440), isAvailable: z.boolean() })).mutation(({ ctx, input }) => business.updateCatalogueItem(ctx.user.id, input)),
+    createModifier: protectedProcedure.input(z.object({ menuItemId: z.number().int().positive(), name: z.string().trim().min(1).max(120), priceMinor: z.number().int().min(0), isRequired: z.boolean() })).mutation(({ ctx, input }) => business.createCatalogueModifier(ctx.user.id, input)),
+    updateModifier: protectedProcedure.input(z.object({ modifierId: z.number().int().positive(), name: z.string().trim().min(1).max(120), priceMinor: z.number().int().min(0), isRequired: z.boolean(), isAvailable: z.boolean() })).mutation(({ ctx, input }) => business.updateCatalogueModifier(ctx.user.id, input)),
+    setLiveStatus: protectedProcedure.input(z.object({ status: z.enum(["live", "paused"]) })).mutation(({ ctx, input }) => business.setBusinessLiveStatus(ctx.user.id, input.status)),
+  }),
+
+  discovery: router({
+    liveBusinesses: publicProcedure.input(z.object({ businessType: z.enum(BUSINESS_TYPES).optional() }).optional()).query(({ input }) => business.getLiveBusinessDiscovery(input?.businessType)),
   }),
 
   adminBusiness: router({

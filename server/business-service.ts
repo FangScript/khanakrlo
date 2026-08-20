@@ -13,6 +13,7 @@ import {
   kitchenBrands,
   menuCategories,
   menuItems,
+  menuModifiers,
   productionStations,
   serviceZones,
   workspaceApplications,
@@ -200,4 +201,144 @@ export async function getMyBusinessOperations(userId: number) {
   if (!organisation) throw new Error("Business operation record is unavailable.");
   const [outlets, kitchens] = await Promise.all([db.select().from(businessOutlets).where(eq(businessOutlets.organisationId, organisation.id)), db.select().from(cloudKitchens).where(eq(cloudKitchens.organisationId, organisation.id))]);
   return { organisation, outlets, kitchens };
+}
+
+async function getOwnedLiveBusinessContext(userId: number) {
+  const db = await requireDb();
+  const membership = (await db.select().from(workspaceMemberships).where(and(eq(workspaceMemberships.userId, userId), eq(workspaceMemberships.workspaceType, "business"), eq(workspaceMemberships.status, "active"))).limit(1))[0];
+  if (!membership?.applicationId) throw new Error("An approved active Business workspace is required.");
+  const organisation = (await db.select().from(businessOrganisations).where(and(eq(businessOrganisations.applicationId, membership.applicationId), eq(businessOrganisations.ownerUserId, userId))).limit(1))[0];
+  if (!organisation) throw new Error("Business operation record is unavailable.");
+  const [outlets, kitchens] = await Promise.all([
+    db.select().from(businessOutlets).where(eq(businessOutlets.organisationId, organisation.id)),
+    db.select().from(cloudKitchens).where(eq(cloudKitchens.organisationId, organisation.id)),
+  ]);
+  const brands = kitchens[0] ? await db.select().from(kitchenBrands).where(eq(kitchenBrands.cloudKitchenId, kitchens[0].id)) : [];
+  return { db, organisation, outlets, kitchens, brands };
+}
+
+async function catalogForContext(context: Awaited<ReturnType<typeof getOwnedLiveBusinessContext>>) {
+  const { db, outlets, brands } = context;
+  const allCategories = await db.select().from(menuCategories);
+  const outletIds = new Set(outlets.map((outlet) => outlet.id));
+  const brandIds = new Set(brands.map((brand) => brand.id));
+  const categories = allCategories.filter((category) => (category.outletId !== null && outletIds.has(category.outletId)) || (category.kitchenBrandId !== null && brandIds.has(category.kitchenBrandId)));
+  const categoryIds = new Set(categories.map((category) => category.id));
+  const items = (await db.select().from(menuItems)).filter((item) => categoryIds.has(item.categoryId));
+  const itemIds = new Set(items.map((item) => item.id));
+  const modifiers = (await db.select().from(menuModifiers)).filter((modifier) => itemIds.has(modifier.menuItemId));
+  return { categories, items, modifiers };
+}
+
+function firstCatalogueScope(context: Awaited<ReturnType<typeof getOwnedLiveBusinessContext>>, scopeId?: number) {
+  if (context.organisation.businessType === "restaurant") {
+    const outlet = scopeId ? context.outlets.find((candidate) => candidate.id === scopeId) : context.outlets[0];
+    if (!outlet) throw new Error("A Restaurant outlet is required before adding a category.");
+    return { outletId: outlet.id, kitchenBrandId: null };
+  }
+  const brand = scopeId ? context.brands.find((candidate) => candidate.id === scopeId) : context.brands[0];
+  if (!brand) throw new Error("A Cloud Kitchen brand is required before adding a category.");
+  return { outletId: null, kitchenBrandId: brand.id };
+}
+
+export async function getManagedCatalogue(userId: number) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const catalogue = await catalogForContext(context);
+  return { organisation: context.organisation, outlets: context.outlets, kitchens: context.kitchens, brands: context.brands, ...catalogue };
+}
+
+export async function createCatalogueCategory(userId: number, input: { name: string; scopeId?: number; sortOrder?: number }) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const name = input.name.trim();
+  if (!name) throw new Error("Category name is required.");
+  const scope = firstCatalogueScope(context, input.scopeId);
+  await context.db.insert(menuCategories).values({ ...scope, name: name.slice(0, 120), sortOrder: Math.max(0, input.sortOrder ?? 0) });
+  const category = (await catalogForContext(context)).categories.find((candidate) => candidate.name === name && candidate.outletId === scope.outletId && candidate.kitchenBrandId === scope.kitchenBrandId);
+  if (!category) throw new Error("Category could not be created.");
+  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_category", entityId: String(category.id), action: "menu_category_created", nextValue: JSON.stringify({ name, scope }) });
+  return category;
+}
+
+export async function updateCatalogueCategory(userId: number, input: { categoryId: number; name: string; sortOrder: number; isActive: boolean }) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const catalogue = await catalogForContext(context);
+  const category = catalogue.categories.find((candidate) => candidate.id === input.categoryId);
+  if (!category) throw new Error("This menu category is outside your Business workspace.");
+  const name = input.name.trim();
+  if (!name) throw new Error("Category name is required.");
+  await context.db.update(menuCategories).set({ name: name.slice(0, 120), sortOrder: Math.max(0, input.sortOrder), isActive: input.isActive, updatedAt: new Date() }).where(eq(menuCategories.id, category.id));
+  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_category", entityId: String(category.id), action: "menu_category_updated" });
+}
+
+export async function createCatalogueItem(userId: number, input: { categoryId: number; name: string; description?: string; priceMinor: number; prepTimeMinutes: number }) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const catalogue = await catalogForContext(context);
+  const category = catalogue.categories.find((candidate) => candidate.id === input.categoryId && candidate.isActive);
+  if (!category) throw new Error("Choose an active category owned by your Business.");
+  const name = input.name.trim();
+  if (!name || input.priceMinor < 0 || input.prepTimeMinutes < 1) throw new Error("Item name, price, and preparation time are required.");
+  await context.db.insert(menuItems).values({ categoryId: category.id, name: name.slice(0, 160), description: input.description?.trim() || null, priceMinor: input.priceMinor, prepTimeMinutes: input.prepTimeMinutes, isAvailable: true });
+  const item = (await catalogForContext(context)).items.find((candidate) => candidate.categoryId === category.id && candidate.name === name);
+  if (!item) throw new Error("Menu item could not be created.");
+  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_item", entityId: String(item.id), action: "menu_item_created", nextValue: JSON.stringify({ categoryId: category.id, priceMinor: input.priceMinor }) });
+  return item;
+}
+
+export async function updateCatalogueItem(userId: number, input: { itemId: number; name: string; description?: string; priceMinor: number; prepTimeMinutes: number; isAvailable: boolean }) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const catalogue = await catalogForContext(context);
+  const item = catalogue.items.find((candidate) => candidate.id === input.itemId);
+  if (!item) throw new Error("This menu item is outside your Business workspace.");
+  const name = input.name.trim();
+  if (!name || input.priceMinor < 0 || input.prepTimeMinutes < 1) throw new Error("Item name, price, and preparation time are required.");
+  await context.db.update(menuItems).set({ name: name.slice(0, 160), description: input.description?.trim() || null, priceMinor: input.priceMinor, prepTimeMinutes: input.prepTimeMinutes, isAvailable: input.isAvailable, updatedAt: new Date() }).where(eq(menuItems.id, item.id));
+  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_item", entityId: String(item.id), action: "menu_item_updated", nextValue: JSON.stringify({ priceMinor: input.priceMinor, isAvailable: input.isAvailable }) });
+}
+
+export async function createCatalogueModifier(userId: number, input: { menuItemId: number; name: string; priceMinor: number; isRequired: boolean }) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const catalogue = await catalogForContext(context);
+  if (!catalogue.items.some((item) => item.id === input.menuItemId)) throw new Error("This menu item is outside your Business workspace.");
+  const name = input.name.trim();
+  if (!name || input.priceMinor < 0) throw new Error("Modifier name and price are required.");
+  await context.db.insert(menuModifiers).values({ menuItemId: input.menuItemId, name: name.slice(0, 120), priceMinor: input.priceMinor, isRequired: input.isRequired, isAvailable: true });
+  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_modifier", entityId: `${input.menuItemId}:${name}`, action: "menu_modifier_created", nextValue: JSON.stringify({ priceMinor: input.priceMinor, isRequired: input.isRequired }) });
+}
+
+export async function updateCatalogueModifier(userId: number, input: { modifierId: number; name: string; priceMinor: number; isRequired: boolean; isAvailable: boolean }) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const catalogue = await catalogForContext(context);
+  const modifier = catalogue.modifiers.find((candidate) => candidate.id === input.modifierId);
+  if (!modifier) throw new Error("This modifier is outside your Business workspace.");
+  const name = input.name.trim();
+  if (!name || input.priceMinor < 0) throw new Error("Modifier name and price are required.");
+  await context.db.update(menuModifiers).set({ name: name.slice(0, 120), priceMinor: input.priceMinor, isRequired: input.isRequired, isAvailable: input.isAvailable, updatedAt: new Date() }).where(eq(menuModifiers.id, modifier.id));
+  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_modifier", entityId: String(modifier.id), action: "menu_modifier_updated" });
+}
+
+export async function setBusinessLiveStatus(userId: number, status: "live" | "paused") {
+  const context = await getOwnedLiveBusinessContext(userId);
+  await context.db.update(businessOrganisations).set({ status, updatedAt: new Date() }).where(eq(businessOrganisations.id, context.organisation.id));
+  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "business_organisation", entityId: String(context.organisation.id), action: `business_${status}` });
+  return { status };
+}
+
+export async function getLiveBusinessDiscovery(filter?: "restaurant" | "cloud_kitchen") {
+  const db = await requireDb();
+  const organisations = (await db.select().from(businessOrganisations).where(eq(businessOrganisations.status, "live"))).filter((organisation) => !filter || organisation.businessType === filter);
+  const records = await Promise.all(organisations.map(async (organisation) => {
+    const [outlets, kitchens] = await Promise.all([
+      db.select().from(businessOutlets).where(eq(businessOutlets.organisationId, organisation.id)),
+      db.select().from(cloudKitchens).where(eq(cloudKitchens.organisationId, organisation.id)),
+    ]);
+    const outlet = outlets.find((candidate) => !candidate.isPaused && candidate.status !== "suspended") ?? outlets[0];
+    const kitchen = kitchens.find((candidate) => !candidate.isPaused && candidate.status !== "suspended") ?? kitchens[0];
+    const brands = kitchen ? await db.select().from(kitchenBrands).where(eq(kitchenBrands.cloudKitchenId, kitchen.id)) : [];
+    const categories = await db.select().from(menuCategories);
+    const entityCategories = categories.filter((category) => (outlet && category.outletId === outlet.id) || brands.some((brand) => category.kitchenBrandId === brand.id));
+    const categoryIds = new Set(entityCategories.map((category) => category.id));
+    const items = (await db.select().from(menuItems)).filter((item) => categoryIds.has(item.categoryId) && item.isAvailable);
+    return { id: organisation.id, businessType: organisation.businessType, displayName: organisation.displayName, city: organisation.city, cuisine: organisation.businessType === "restaurant" ? outlet?.cuisine ?? "Mixed" : brands.map((brand) => brand.cuisine).filter(Boolean).join(" • ") || "Cloud Kitchen", description: outlet?.description ?? brands[0]?.description ?? null, itemCount: items.length, isOpen: organisation.status === "live" && !(outlet?.isPaused || kitchen?.isPaused), deliveryLabel: organisation.businessType === "restaurant" ? "Restaurant delivery" : `${brands.length} kitchen brand${brands.length === 1 ? "" : "s"}` };
+  }));
+  return records.sort((a, b) => a.displayName.localeCompare(b.displayName));
 }

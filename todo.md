@@ -55,3 +55,9 @@
 - [x] Build a protected Admin Business application queue, detail review, decision, and activation experience.
 - [x] Activate approved Restaurant Live Orders or Cloud Kitchen Kitchen Control through workspace guards.
 - [x] Validate Business onboarding, Admin review, and approval-gated workspace activation end to end.
+- [x] Implement protected Business category, menu item, modifier, availability, and live-status services.
+- [x] Implement public discovery queries for approved live Restaurants and Cloud Kitchens with type filtering.
+- [x] Build approved Business dashboard with live readiness, profile status, menu summary, and incoming-order metrics.
+- [x] Build multi-item category, menu item, modifier, price, availability, and edit interfaces for approved Businesses.
+- [x] Build Customer discovery feed using approved live Business records with Restaurant and Cloud Kitchen filters.
+- [x] Add deterministic catalogue and discovery tests and validate the integrated production slice.
