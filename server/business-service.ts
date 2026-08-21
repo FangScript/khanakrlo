@@ -224,12 +224,23 @@ async function catalogForContext(context: Awaited<ReturnType<typeof getOwnedLive
   const allCategories = await db.select().from(menuCategories);
   const outletIds = new Set(outlets.map((outlet) => outlet.id));
   const brandIds = new Set(brands.map((brand) => brand.id));
-  const categories = allCategories.filter((category) => (category.outletId !== null && outletIds.has(category.outletId)) || (category.kitchenBrandId !== null && brandIds.has(category.kitchenBrandId)));
+  const categories = allCategories.filter((category) => !category.archivedAt && ((category.outletId !== null && outletIds.has(category.outletId)) || (category.kitchenBrandId !== null && brandIds.has(category.kitchenBrandId))));
   const categoryIds = new Set(categories.map((category) => category.id));
-  const items = (await db.select().from(menuItems)).filter((item) => categoryIds.has(item.categoryId));
+  const items = (await db.select().from(menuItems)).filter((item) => categoryIds.has(item.categoryId) && !item.archivedAt);
   const itemIds = new Set(items.map((item) => item.id));
-  const modifiers = (await db.select().from(menuModifiers)).filter((modifier) => itemIds.has(modifier.menuItemId));
+  const modifiers = (await db.select().from(menuModifiers)).filter((modifier) => itemIds.has(modifier.menuItemId) && !modifier.archivedAt);
   return { categories, items, modifiers };
+}
+
+async function writeCatalogueOutbox(db: Pick<Awaited<ReturnType<typeof requireDb>>, "insert">, input: { eventType: string; aggregateType: "menu_category" | "menu_item" | "menu_modifier"; aggregateId: number; actorUserId: number; payload: Record<string, unknown> }) {
+  await db.insert(domainOutboxEvents).values({
+    domain: "catalogue",
+    eventType: input.eventType,
+    aggregateType: input.aggregateType,
+    aggregateId: String(input.aggregateId),
+    payload: JSON.stringify({ actorUserId: input.actorUserId, ...input.payload }),
+    deduplicationKey: `${input.eventType}:${input.aggregateId}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`,
+  });
 }
 
 function firstCatalogueScope(context: Awaited<ReturnType<typeof getOwnedLiveBusinessContext>>, scopeId?: number) {
@@ -258,6 +269,7 @@ export async function createCatalogueCategory(userId: number, input: { name: str
   const category = (await catalogForContext(context)).categories.find((candidate) => candidate.name === name && candidate.outletId === scope.outletId && candidate.kitchenBrandId === scope.kitchenBrandId);
   if (!category) throw new Error("Category could not be created.");
   await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_category", entityId: String(category.id), action: "menu_category_created", nextValue: JSON.stringify({ name, scope }) });
+  await writeCatalogueOutbox(context.db, { eventType: "catalogue.category_created", aggregateType: "menu_category", aggregateId: category.id, actorUserId: userId, payload: { name, scope, isActive: true } });
   return category;
 }
 
@@ -269,20 +281,38 @@ export async function updateCatalogueCategory(userId: number, input: { categoryI
   const name = input.name.trim();
   if (!name) throw new Error("Category name is required.");
   await context.db.update(menuCategories).set({ name: name.slice(0, 120), sortOrder: Math.max(0, input.sortOrder), isActive: input.isActive, updatedAt: new Date() }).where(eq(menuCategories.id, category.id));
-  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_category", entityId: String(category.id), action: "menu_category_updated" });
+  const nextValue = { name: name.slice(0, 120), sortOrder: Math.max(0, input.sortOrder), isActive: input.isActive };
+  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_category", entityId: String(category.id), action: "menu_category_updated", previousValue: JSON.stringify({ name: category.name, sortOrder: category.sortOrder, isActive: category.isActive }), nextValue: JSON.stringify(nextValue) });
+  await writeCatalogueOutbox(context.db, { eventType: "catalogue.category_updated", aggregateType: "menu_category", aggregateId: category.id, actorUserId: userId, payload: nextValue });
 }
 
-export async function createCatalogueItem(userId: number, input: { categoryId: number; name: string; description?: string; priceMinor: number; prepTimeMinutes: number }) {
+export async function archiveCatalogueCategory(userId: number, input: { categoryId: number }) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const catalogue = await catalogForContext(context);
+  const category = catalogue.categories.find((candidate) => candidate.id === input.categoryId);
+  if (!category) throw new Error("This menu category is outside your Business workspace.");
+  if (catalogue.items.some((item) => item.categoryId === category.id)) throw new Error("Archive or move every dish in this category before archiving the category.");
+  const archivedAt = new Date();
+  await context.db.transaction(async (tx) => {
+    await tx.update(menuCategories).set({ isActive: false, archivedAt, archivedByUserId: userId, updatedAt: archivedAt }).where(eq(menuCategories.id, category.id));
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_category", entityId: String(category.id), action: "menu_category_archived", previousValue: JSON.stringify({ name: category.name, isActive: category.isActive }), nextValue: JSON.stringify({ archivedAt }) });
+    await writeCatalogueOutbox(tx, { eventType: "catalogue.category_archived", aggregateType: "menu_category", aggregateId: category.id, actorUserId: userId, payload: { archivedAt: archivedAt.toISOString() } });
+  });
+  return { archivedCategoryId: category.id };
+}
+
+export async function createCatalogueItem(userId: number, input: { categoryId: number; name: string; description?: string; priceMinor: number; prepTimeMinutes: number; isAvailable: boolean }) {
   const context = await getOwnedLiveBusinessContext(userId);
   const catalogue = await catalogForContext(context);
   const category = catalogue.categories.find((candidate) => candidate.id === input.categoryId && candidate.isActive);
   if (!category) throw new Error("Choose an active category owned by your Business.");
   const name = input.name.trim();
   if (!name || input.priceMinor < 0 || input.prepTimeMinutes < 1) throw new Error("Item name, price, and preparation time are required.");
-  await context.db.insert(menuItems).values({ categoryId: category.id, name: name.slice(0, 160), description: input.description?.trim() || null, priceMinor: input.priceMinor, prepTimeMinutes: input.prepTimeMinutes, isAvailable: true });
+  await context.db.insert(menuItems).values({ categoryId: category.id, name: name.slice(0, 160), description: input.description?.trim() || null, priceMinor: input.priceMinor, prepTimeMinutes: input.prepTimeMinutes, isAvailable: input.isAvailable });
   const item = (await catalogForContext(context)).items.find((candidate) => candidate.categoryId === category.id && candidate.name === name);
   if (!item) throw new Error("Menu item could not be created.");
   await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_item", entityId: String(item.id), action: "menu_item_created", nextValue: JSON.stringify({ categoryId: category.id, priceMinor: input.priceMinor }) });
+  await writeCatalogueOutbox(context.db, { eventType: "catalogue.item_created", aggregateType: "menu_item", aggregateId: item.id, actorUserId: userId, payload: { categoryId: category.id, priceMinor: input.priceMinor, isAvailable: input.isAvailable } });
   return item;
 }
 
@@ -294,7 +324,25 @@ export async function updateCatalogueItem(userId: number, input: { itemId: numbe
   const name = input.name.trim();
   if (!name || input.priceMinor < 0 || input.prepTimeMinutes < 1) throw new Error("Item name, price, and preparation time are required.");
   await context.db.update(menuItems).set({ name: name.slice(0, 160), description: input.description?.trim() || null, priceMinor: input.priceMinor, prepTimeMinutes: input.prepTimeMinutes, isAvailable: input.isAvailable, updatedAt: new Date() }).where(eq(menuItems.id, item.id));
-  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_item", entityId: String(item.id), action: "menu_item_updated", nextValue: JSON.stringify({ priceMinor: input.priceMinor, isAvailable: input.isAvailable }) });
+  const nextValue = { name: name.slice(0, 160), description: input.description?.trim() || null, priceMinor: input.priceMinor, prepTimeMinutes: input.prepTimeMinutes, isAvailable: input.isAvailable };
+  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_item", entityId: String(item.id), action: "menu_item_updated", previousValue: JSON.stringify({ name: item.name, description: item.description, priceMinor: item.priceMinor, prepTimeMinutes: item.prepTimeMinutes, isAvailable: item.isAvailable }), nextValue: JSON.stringify(nextValue) });
+  if (item.priceMinor !== input.priceMinor) await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_item", entityId: String(item.id), action: "menu_item_price_changed", previousValue: JSON.stringify({ priceMinor: item.priceMinor }), nextValue: JSON.stringify({ priceMinor: input.priceMinor }) });
+  await writeCatalogueOutbox(context.db, { eventType: item.isAvailable !== input.isAvailable ? "catalogue.item_availability_changed" : "catalogue.item_updated", aggregateType: "menu_item", aggregateId: item.id, actorUserId: userId, payload: { previousPriceMinor: item.priceMinor, ...nextValue } });
+}
+
+export async function archiveCatalogueItem(userId: number, input: { itemId: number }) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const catalogue = await catalogForContext(context);
+  const item = catalogue.items.find((candidate) => candidate.id === input.itemId);
+  if (!item) throw new Error("This menu item is outside your Business workspace.");
+  const archivedAt = new Date();
+  await context.db.transaction(async (tx) => {
+    await tx.update(menuItems).set({ isAvailable: false, archivedAt, archivedByUserId: userId, updatedAt: archivedAt }).where(eq(menuItems.id, item.id));
+    await tx.update(menuModifiers).set({ isAvailable: false, archivedAt, archivedByUserId: userId, updatedAt: archivedAt }).where(eq(menuModifiers.menuItemId, item.id));
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_item", entityId: String(item.id), action: "menu_item_archived", previousValue: JSON.stringify({ name: item.name, priceMinor: item.priceMinor, isAvailable: item.isAvailable }), nextValue: JSON.stringify({ archivedAt }) });
+    await writeCatalogueOutbox(tx, { eventType: "catalogue.item_archived", aggregateType: "menu_item", aggregateId: item.id, actorUserId: userId, payload: { archivedAt: archivedAt.toISOString() } });
+  });
+  return { archivedItemId: item.id };
 }
 
 export async function createCatalogueModifier(userId: number, input: { menuItemId: number; name: string; priceMinor: number; isRequired: boolean }) {
@@ -305,6 +353,10 @@ export async function createCatalogueModifier(userId: number, input: { menuItemI
   if (!name || input.priceMinor < 0) throw new Error("Modifier name and price are required.");
   await context.db.insert(menuModifiers).values({ menuItemId: input.menuItemId, name: name.slice(0, 120), priceMinor: input.priceMinor, isRequired: input.isRequired, isAvailable: true });
   await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_modifier", entityId: `${input.menuItemId}:${name}`, action: "menu_modifier_created", nextValue: JSON.stringify({ priceMinor: input.priceMinor, isRequired: input.isRequired }) });
+  const modifier = (await catalogForContext(context)).modifiers.find((candidate) => candidate.menuItemId === input.menuItemId && candidate.name === name);
+  if (!modifier) throw new Error("Menu modifier could not be created.");
+  await writeCatalogueOutbox(context.db, { eventType: "catalogue.modifier_created", aggregateType: "menu_modifier", aggregateId: modifier.id, actorUserId: userId, payload: { menuItemId: input.menuItemId, priceMinor: input.priceMinor, isRequired: input.isRequired, isAvailable: true } });
+  return modifier;
 }
 
 export async function updateCatalogueModifier(userId: number, input: { modifierId: number; name: string; priceMinor: number; isRequired: boolean; isAvailable: boolean }) {
@@ -315,7 +367,23 @@ export async function updateCatalogueModifier(userId: number, input: { modifierI
   const name = input.name.trim();
   if (!name || input.priceMinor < 0) throw new Error("Modifier name and price are required.");
   await context.db.update(menuModifiers).set({ name: name.slice(0, 120), priceMinor: input.priceMinor, isRequired: input.isRequired, isAvailable: input.isAvailable, updatedAt: new Date() }).where(eq(menuModifiers.id, modifier.id));
-  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_modifier", entityId: String(modifier.id), action: "menu_modifier_updated" });
+  const nextValue = { name: name.slice(0, 120), priceMinor: input.priceMinor, isRequired: input.isRequired, isAvailable: input.isAvailable };
+  await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_modifier", entityId: String(modifier.id), action: "menu_modifier_updated", previousValue: JSON.stringify({ name: modifier.name, priceMinor: modifier.priceMinor, isRequired: modifier.isRequired, isAvailable: modifier.isAvailable }), nextValue: JSON.stringify(nextValue) });
+  await writeCatalogueOutbox(context.db, { eventType: modifier.isAvailable !== input.isAvailable ? "catalogue.modifier_availability_changed" : "catalogue.modifier_updated", aggregateType: "menu_modifier", aggregateId: modifier.id, actorUserId: userId, payload: nextValue });
+}
+
+export async function archiveCatalogueModifier(userId: number, input: { modifierId: number }) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const catalogue = await catalogForContext(context);
+  const modifier = catalogue.modifiers.find((candidate) => candidate.id === input.modifierId);
+  if (!modifier) throw new Error("This modifier is outside your Business workspace.");
+  const archivedAt = new Date();
+  await context.db.transaction(async (tx) => {
+    await tx.update(menuModifiers).set({ isAvailable: false, archivedAt, archivedByUserId: userId, updatedAt: archivedAt }).where(eq(menuModifiers.id, modifier.id));
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_modifier", entityId: String(modifier.id), action: "menu_modifier_archived", previousValue: JSON.stringify({ name: modifier.name, priceMinor: modifier.priceMinor, isAvailable: modifier.isAvailable }), nextValue: JSON.stringify({ archivedAt }) });
+    await writeCatalogueOutbox(tx, { eventType: "catalogue.modifier_archived", aggregateType: "menu_modifier", aggregateId: modifier.id, actorUserId: userId, payload: { archivedAt: archivedAt.toISOString() } });
+  });
+  return { archivedModifierId: modifier.id };
 }
 
 export async function setBusinessLiveStatus(userId: number, status: "live" | "paused") {
@@ -337,9 +405,9 @@ export async function getLiveBusinessDiscovery(filter?: "restaurant" | "cloud_ki
     const kitchen = kitchens.find((candidate) => !candidate.isPaused && candidate.status !== "suspended") ?? kitchens[0];
     const brands = kitchen ? await db.select().from(kitchenBrands).where(eq(kitchenBrands.cloudKitchenId, kitchen.id)) : [];
     const categories = await db.select().from(menuCategories);
-    const entityCategories = categories.filter((category) => (outlet && category.outletId === outlet.id) || brands.some((brand) => category.kitchenBrandId === brand.id));
+    const entityCategories = categories.filter((category) => !category.archivedAt && category.isActive && ((outlet && category.outletId === outlet.id) || brands.some((brand) => category.kitchenBrandId === brand.id)));
     const categoryIds = new Set(entityCategories.map((category) => category.id));
-    const items = (await db.select().from(menuItems)).filter((item) => categoryIds.has(item.categoryId) && item.isAvailable);
+    const items = (await db.select().from(menuItems)).filter((item) => categoryIds.has(item.categoryId) && item.isAvailable && !item.archivedAt);
     return { id: organisation.id, businessType: organisation.businessType, displayName: organisation.displayName, city: organisation.city, cuisine: organisation.businessType === "restaurant" ? outlet?.cuisine ?? "Mixed" : brands.map((brand) => brand.cuisine).filter(Boolean).join(" • ") || "Cloud Kitchen", description: outlet?.description ?? brands[0]?.description ?? null, itemCount: items.length, isOpen: organisation.status === "live" && !(outlet?.isPaused || kitchen?.isPaused), deliveryLabel: organisation.businessType === "restaurant" ? "Restaurant delivery" : `${brands.length} kitchen brand${brands.length === 1 ? "" : "s"}` };
   }));
   return records.sort((a, b) => a.displayName.localeCompare(b.displayName));

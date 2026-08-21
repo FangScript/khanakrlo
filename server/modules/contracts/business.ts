@@ -30,10 +30,13 @@ export const businessDocumentUploadInput = z.object({
 
 export const catalogueCategoryCreateInput = z.object({ name: z.string().trim().min(1).max(120), scopeId: z.number().int().positive().optional(), sortOrder: z.number().int().min(0).max(999).optional() });
 export const catalogueCategoryUpdateInput = z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(1).max(120), sortOrder: z.number().int().min(0).max(999), isActive: z.boolean() });
-export const catalogueItemCreateInput = z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(1).max(160), description: z.string().trim().max(1000).optional(), priceMinor: z.number().int().min(0), prepTimeMinutes: z.number().int().min(1).max(1440) });
+export const catalogueItemCreateInput = z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(1).max(160), description: z.string().trim().max(1000).optional(), priceMinor: z.number().int().min(0), prepTimeMinutes: z.number().int().min(1).max(1440), isAvailable: z.boolean().default(true) });
 export const catalogueItemUpdateInput = z.object({ itemId: z.number().int().positive(), name: z.string().trim().min(1).max(160), description: z.string().trim().max(1000).optional(), priceMinor: z.number().int().min(0), prepTimeMinutes: z.number().int().min(1).max(1440), isAvailable: z.boolean() });
 export const catalogueModifierCreateInput = z.object({ menuItemId: z.number().int().positive(), name: z.string().trim().min(1).max(120), priceMinor: z.number().int().min(0), isRequired: z.boolean() });
 export const catalogueModifierUpdateInput = z.object({ modifierId: z.number().int().positive(), name: z.string().trim().min(1).max(120), priceMinor: z.number().int().min(0), isRequired: z.boolean(), isAvailable: z.boolean() });
+export const catalogueCategoryArchiveInput = z.object({ categoryId: z.number().int().positive() });
+export const catalogueItemArchiveInput = z.object({ itemId: z.number().int().positive() });
+export const catalogueModifierArchiveInput = z.object({ modifierId: z.number().int().positive() });
 export const businessLiveStatusInput = z.object({ status: z.enum(["live", "paused"]) });
 export const discoveryFilterInput = z.object({ businessType: z.enum(BUSINESS_TYPES).optional() }).optional();
 

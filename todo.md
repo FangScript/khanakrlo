@@ -83,3 +83,4 @@
 - [x] Add transactional outbox foundations and domain contract tests for the first migration slice.
 - [x] Produce a complete current-state application documentation report with the approved launch roadmap.
 - [x] Produce the detailed Restaurant Management System Design and audit report for the controlled pilot.
+- [x] Add approved-Business-only Restaurant menu CRUD with dish prices, modifiers, availability, and archive controls.

@@ -162,15 +162,15 @@ export const businessHours = mysqlTable("business_hours", {
 }, (table) => [uniqueIndex("business_hours_scope_day_unique").on(table.scopeType, table.scopeId, table.weekday)]);
 
 export const menuCategories = mysqlTable("menu_categories", {
-  id: int("id").autoincrement().primaryKey(), outletId: int("outletId"), kitchenBrandId: int("kitchenBrandId"), name: varchar("name", { length: 120 }).notNull(), sortOrder: int("sortOrder").default(0).notNull(), isActive: boolean("isActive").default(true).notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  id: int("id").autoincrement().primaryKey(), outletId: int("outletId"), kitchenBrandId: int("kitchenBrandId"), name: varchar("name", { length: 120 }).notNull(), sortOrder: int("sortOrder").default(0).notNull(), isActive: boolean("isActive").default(true).notNull(), archivedAt: timestamp("archivedAt"), archivedByUserId: int("archivedByUserId"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [index("menu_categories_outlet_index").on(table.outletId), index("menu_categories_brand_index").on(table.kitchenBrandId)]);
 
 export const menuItems = mysqlTable("menu_items", {
-  id: int("id").autoincrement().primaryKey(), categoryId: int("categoryId").notNull(), name: varchar("name", { length: 160 }).notNull(), description: text("description"), priceMinor: int("priceMinor").notNull(), prepTimeMinutes: int("prepTimeMinutes").notNull(), imageKey: varchar("imageKey", { length: 500 }), isAvailable: boolean("isAvailable").default(true).notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  id: int("id").autoincrement().primaryKey(), categoryId: int("categoryId").notNull(), name: varchar("name", { length: 160 }).notNull(), description: text("description"), priceMinor: int("priceMinor").notNull(), prepTimeMinutes: int("prepTimeMinutes").notNull(), imageKey: varchar("imageKey", { length: 500 }), isAvailable: boolean("isAvailable").default(true).notNull(), archivedAt: timestamp("archivedAt"), archivedByUserId: int("archivedByUserId"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [index("menu_items_category_index").on(table.categoryId, table.isAvailable)]);
 
 export const menuModifiers = mysqlTable("menu_modifiers", {
-  id: int("id").autoincrement().primaryKey(), menuItemId: int("menuItemId").notNull(), name: varchar("name", { length: 120 }).notNull(), priceMinor: int("priceMinor").default(0).notNull(), isRequired: boolean("isRequired").default(false).notNull(), isAvailable: boolean("isAvailable").default(true).notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  id: int("id").autoincrement().primaryKey(), menuItemId: int("menuItemId").notNull(), name: varchar("name", { length: 120 }).notNull(), priceMinor: int("priceMinor").default(0).notNull(), isRequired: boolean("isRequired").default(false).notNull(), isAvailable: boolean("isAvailable").default(true).notNull(), archivedAt: timestamp("archivedAt"), archivedByUserId: int("archivedByUserId"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [index("menu_modifiers_item_index").on(table.menuItemId, table.isAvailable)]);
 
 export const businessDocuments = mysqlTable("business_documents", {

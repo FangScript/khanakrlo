@@ -7,7 +7,7 @@ import { MerchantScreen } from "@/components/merchant-ui";
 import { useMerchantStore } from "@/lib/merchant-store";
 
 const rows = [
-  { icon: "restaurant-menu" as const, title: "Menu & availability", subtitle: "42 live items · 3 unavailable" },
+  { icon: "restaurant-menu" as const, title: "Menu, prices & availability", subtitle: "Open the approved production catalogue", href: "/business/catalogue" },
   { icon: "schedule" as const, title: "Business hours", subtitle: "Open today until 11:30 PM" },
   { icon: "group" as const, title: "Staff access", subtitle: "4 team members" },
   { icon: "support-agent" as const, title: "Partner support", subtitle: "Get help with orders and payouts" },
@@ -29,7 +29,7 @@ export default function MerchantProfileScreen() {
         <View style={styles.profileCard}><View style={styles.storeIcon}><MaterialIcons name="storefront" size={30} color="#FFFFFF" /></View><View style={styles.verified}><MaterialIcons name="verified" size={14} color="#17683A" /><Text style={styles.verifiedText}>Verified partner</Text></View><Text style={styles.outletName}>{profile.outletName}</Text><Text style={styles.owner}>{profile.name} · Restaurant manager</Text><Text style={styles.phone}>+92 {profile.phone.slice(0, 3)} {profile.phone.slice(3, 6)} {profile.phone.slice(6)}</Text></View>
         <View style={styles.openCard}><View><Text style={styles.openTitle}>{isOpen ? "Outlet is accepting orders" : "Outlet is paused"}</Text><Text style={styles.openSubtitle}>{isOpen ? "Customers can place orders now." : "Customers cannot place new orders."}</Text></View><Switch value={isOpen} onValueChange={setIsOpen} trackColor={{ false: "#D8DDD8", true: "#9EDAB0" }} thumbColor={isOpen ? "#168A4A" : "#FFFFFF" } /></View>
         <Text style={styles.sectionTitle}>Manage outlet</Text>
-        <View style={styles.rowCard}>{rows.map((row, index) => <Pressable key={row.title} accessibilityRole="button" style={[styles.row, index < rows.length - 1 && styles.rowBorder]}><View style={styles.rowIcon}><MaterialIcons name={row.icon} size={20} color="#064B2C" /></View><View style={{ flex: 1 }}><Text style={styles.rowTitle}>{row.title}</Text><Text style={styles.rowSubtitle}>{row.subtitle}</Text></View><MaterialIcons name="chevron-right" size={21} color="#91A097" /></Pressable>)}</View>
+        <View style={styles.rowCard}>{rows.map((row, index) => <Pressable key={row.title} accessibilityRole="button" onPress={row.href ? () => router.push(row.href as never) : undefined} style={[styles.row, index < rows.length - 1 && styles.rowBorder]}><View style={styles.rowIcon}><MaterialIcons name={row.icon} size={20} color="#064B2C" /></View><View style={{ flex: 1 }}><Text style={styles.rowTitle}>{row.title}</Text><Text style={styles.rowSubtitle}>{row.subtitle}</Text></View><MaterialIcons name="chevron-right" size={21} color="#91A097" /></Pressable>)}</View>
       </ScrollView>
     </MerchantScreen>
   );
