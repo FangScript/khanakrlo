@@ -37,7 +37,9 @@ export const catalogueModifierUpdateInput = z.object({ modifierId: z.number().in
 export const catalogueCategoryArchiveInput = z.object({ categoryId: z.number().int().positive() });
 export const catalogueItemArchiveInput = z.object({ itemId: z.number().int().positive() });
 export const catalogueModifierArchiveInput = z.object({ modifierId: z.number().int().positive() });
+export const catalogueItemImageUploadInput = z.object({ menuItemId: z.number().int().positive(), mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]), dataBase64: z.string().min(1).max(7_000_000) });
 export const businessLiveStatusInput = z.object({ status: z.enum(["live", "paused"]) });
 export const discoveryFilterInput = z.object({ businessType: z.enum(BUSINESS_TYPES).optional() }).optional();
+export const liveBusinessMenuInput = z.object({ businessId: z.number().int().positive() });
 
 export type BusinessDraftInput = z.infer<typeof businessDraftInput>;

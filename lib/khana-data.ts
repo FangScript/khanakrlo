@@ -38,10 +38,15 @@ export type CartLine = {
   id: string;
   restaurantId: string;
   menuItemId: string;
+  serverBusinessId?: number;
+  serverMenuItemId?: number;
+  serverModifierIds?: number[];
+  restaurantName?: string;
   name: string;
   quantity: number;
   unitPrice: number;
-  image: ImageSourcePropType;
+  image?: ImageSourcePropType;
+  imageUrl?: string | null;
   spice: string;
   addOns: AddOn[];
 };

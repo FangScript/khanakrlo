@@ -84,6 +84,23 @@ function addItem(item: MenuItem, spice: string, addOns: AddOn[]) {
   persistCart(next.cart);
 }
 
+function addLiveItem(input: { businessId: number; businessName: string; menuItemId: number; name: string; priceMinor: number; imageUrl: string | null; modifiers: Array<{ id: number; name: string; priceMinor: number }>; selectedModifierIds: number[] }) {
+  const modifierIds = [...new Set(input.selectedModifierIds)].sort((left, right) => left - right);
+  const lineId = `live-${input.businessId}-${input.menuItemId}-${modifierIds.join("-")}`;
+  const existing = state.cart.find((line) => line.id === lineId);
+  if (existing) {
+    const next = { ...state, cart: state.cart.map((line) => line.id === lineId ? { ...line, quantity: line.quantity + 1 } : line) };
+    setState(next);
+    persistCart(next.cart);
+    return;
+  }
+  const selectedAddOns: AddOn[] = input.modifiers.filter((modifier) => modifierIds.includes(modifier.id)).map((modifier) => ({ id: String(modifier.id), name: modifier.name, price: modifier.priceMinor / 100 }));
+  const nextLine: CartLine = { id: lineId, restaurantId: String(input.businessId), menuItemId: String(input.menuItemId), serverBusinessId: input.businessId, serverMenuItemId: input.menuItemId, serverModifierIds: modifierIds, restaurantName: input.businessName, name: input.name, quantity: 1, unitPrice: input.priceMinor / 100, imageUrl: input.imageUrl, spice: "", addOns: selectedAddOns };
+  const next = { ...state, cart: [...state.cart, nextLine] };
+  setState(next);
+  persistCart(next.cart);
+}
+
 function changeQuantity(lineId: string, difference: number) {
   const updated = state.cart
     .map((line) => (line.id === lineId ? { ...line, quantity: line.quantity + difference } : line))
@@ -168,6 +185,7 @@ export function useKhanaStore() {
   return {
     ...snapshot,
     addItem,
+    addLiveItem,
     changeQuantity,
     clearCart,
     placeOrder,

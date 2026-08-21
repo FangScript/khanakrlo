@@ -1,114 +1,39 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router } from "expo-router";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
-import { MerchantScreen, MerchantTopBar, QueueStatusPill, merchantStatus } from "@/components/merchant-ui";
+import { MerchantScreen, MerchantTopBar } from "@/components/merchant-ui";
 import { SuccessToast, useSuccessToast } from "@/components/success-toast";
-import { type MerchantOrder, type MerchantOrderStatus, useMerchantStore } from "@/lib/merchant-store";
 import { trpc } from "@/lib/trpc";
 
-const queueOrder: MerchantOrderStatus[] = ["new", "preparing", "ready", "outForDelivery"];
+type BusinessOrder = { id: number; publicId: string; status: "placed" | "accepted" | "preparing" | "ready_for_pickup" | "assigned" | "picked_up" | "delivered" | "rejected" | "cancelled"; totalMinor: number; deliveryRecipientName: string; placedAt: Date; lines: { id: number; dishName: string; quantity: number; prepTimeMinutes: number }[] };
+const operational = ["placed", "accepted", "preparing", "ready_for_pickup", "assigned", "picked_up"] as const;
+const nextStatus = { placed: "accepted", accepted: "preparing", preparing: "ready_for_pickup" } as const;
+function formatMinor(value: number) { return `PKR ${(value / 100).toLocaleString("en-PK", { maximumFractionDigits: 2 })}`; }
+function label(status: string) { return status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()); }
 
 export default function LiveOrdersScreen() {
-  const { profile, hasHydrated, orders, hydrateMerchantSession, updateOrderStatus } = useMerchantStore();
+  const queue = trpc.orders.businessQueue.useQuery(undefined, { retry: false, refetchInterval: 20_000 });
+  const transition = trpc.orders.transition.useMutation({ onSuccess: () => void queue.refetch() });
   const { successMessage, showSuccess } = useSuccessToast();
-  const businessAccess = trpc.businessOperations.mine.useQuery(undefined, { retry: false });
+  const orders = queue.data as BusinessOrder[] | undefined;
+  const active = useMemo(() => (orders ?? []).filter((order) => operational.includes(order.status as (typeof operational)[number])).sort((left, right) => operational.indexOf(left.status as (typeof operational)[number]) - operational.indexOf(right.status as (typeof operational)[number])), [orders]);
+  const counts = { placed: active.filter((order) => order.status === "placed").length, preparing: active.filter((order) => order.status === "preparing").length, ready: active.filter((order) => order.status === "ready_for_pickup").length };
 
-  useEffect(() => {
-    void hydrateMerchantSession();
-  }, [hydrateMerchantSession]);
+  if (queue.isLoading) return <MerchantScreen><View style={styles.loading}><ActivityIndicator size="small" color="#168A4A" /><Text style={styles.loadingText}>Opening your persisted order queue…</Text></View></MerchantScreen>;
+  if (queue.error) return <MerchantScreen><View style={styles.loading}><MaterialIcons name="lock" size={29} color="#064B2C" /><Text style={styles.loadingTitle}>Approved Business access required</Text><Text style={styles.loadingText}>Live Orders reads real orders only after your Business has been approved and authenticated.</Text><Pressable onPress={() => router.replace("/business/onboarding" as never)} style={styles.accessButton}><Text style={styles.accessText}>View Business status</Text></Pressable></View></MerchantScreen>;
 
-  useEffect(() => {
-    if (hasHydrated && !profile) router.replace("/merchant/welcome" as never);
-  }, [hasHydrated, profile]);
-
-  const activeOrders = useMemo(() => orders.filter((order) => order.status !== "rejected"), [orders]);
-  const orderedOrders = useMemo(() => [...activeOrders].sort((a, b) => queueOrder.indexOf(a.status) - queueOrder.indexOf(b.status)), [activeOrders]);
-  const counts = useMemo(() => Object.fromEntries(queueOrder.map((status) => [status, activeOrders.filter((order) => order.status === status).length])) as Record<MerchantOrderStatus, number>, [activeOrders]);
-
-  if (businessAccess.isLoading || !hasHydrated || !profile) {
-    return <MerchantScreen><View style={styles.loading}><ActivityIndicator size="small" color="#168A4A" /><Text style={styles.loadingText}>Opening your outlet…</Text></View></MerchantScreen>;
+  async function advance(order: BusinessOrder) {
+    const target = nextStatus[order.status as keyof typeof nextStatus];
+    if (!target) return;
+    try { await transition.mutateAsync({ orderId: order.id, toStatus: target }); showSuccess(`${order.publicId} moved to ${label(target)}`); } catch (error) { showSuccess(error instanceof Error ? error.message : "Order state could not be updated"); }
   }
 
-  if (businessAccess.error && !profile) {
-    return <MerchantScreen><View style={styles.loading}><MaterialIcons name="lock" size={28} color="#064B2C" /><Text style={styles.loadingText}>Business approval is required before Live Orders can open.</Text><Pressable onPress={() => router.replace("/account/workspaces" as never)} style={styles.accessButton}><Text style={styles.accessText}>View application status</Text></Pressable></View></MerchantScreen>;
-  }
-
-  return (
-    <MerchantScreen>
-      <FlatList
-        data={orderedOrders}
-        keyExtractor={(order) => order.id}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        ListHeaderComponent={
-          <>
-            <MerchantTopBar outletName={profile.outletName} onPressAvatar={() => router.push("/merchant/profile" as never)} />
-            <View style={styles.summaryRow}>
-              <SummaryTile label="New" count={counts.new} color="#F3A93B" icon="notifications-active" />
-              <SummaryTile label="Cooking" count={counts.preparing} color="#4B81CE" icon="soup-kitchen" />
-              <SummaryTile label="Ready" count={counts.ready} color="#168A4A" icon="check-circle" />
-            </View>
-            <View style={styles.sectionHeader}>
-              <View><Text style={styles.sectionTitle}>Order queue</Text><Text style={styles.sectionSubtitle}>{activeOrders.length} active orders across your kitchen</Text></View>
-              <View style={styles.liveChip}><View style={styles.liveDot} /><Text style={styles.liveText}>Live</Text></View>
-            </View>
-          </>
-        }
-        renderItem={({ item }) => <OrderCard order={item} onAccept={() => { updateOrderStatus(item.id, "preparing"); showSuccess(`${item.id} accepted and moved to preparation`); }} />}
-        ListFooterComponent={<View style={{ height: 30 }} />}
-      /><SuccessToast message={successMessage} />
-    </MerchantScreen>
-  );
+  return <MerchantScreen><FlatList data={active} keyExtractor={(order) => String(order.id)} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} ListHeaderComponent={<><MerchantTopBar outletName="Restaurant management" onPressAvatar={() => router.push("/merchant/profile" as never)} /><View style={styles.summaryRow}><SummaryTile label="New" count={counts.placed} color="#F3A93B" icon="notifications-active" /><SummaryTile label="Cooking" count={counts.preparing} color="#4B81CE" icon="soup-kitchen" /><SummaryTile label="Ready" count={counts.ready} color="#168A4A" icon="check-circle" /></View><View style={styles.sectionHeader}><View><Text style={styles.sectionTitle}>Persisted order queue</Text><Text style={styles.sectionSubtitle}>{active.length} active order{active.length === 1 ? "" : "s"} with server snapshots</Text></View><View style={styles.liveChip}><View style={styles.liveDot} /><Text style={styles.liveText}>Live</Text></View></View></>} ListEmptyComponent={<View style={styles.empty}><MaterialIcons name="receipt-long" size={30} color="#064B2C" /><Text style={styles.emptyTitle}>No active orders</Text><Text style={styles.emptyText}>New customer orders will appear here after the Order Service saves them.</Text></View>} renderItem={({ item }) => <OrderCard order={item} busy={transition.isPending} onAdvance={() => void advance(item)} />} ListFooterComponent={<View style={{ height: 30 }} />} /><SuccessToast message={successMessage} /></MerchantScreen>;
 }
 
-function SummaryTile({ label, count, color, icon }: { label: string; count: number; color: string; icon: keyof typeof MaterialIcons.glyphMap }) {
-  return <View style={styles.summaryTile}><View style={[styles.summaryIcon, { backgroundColor: `${color}1C` }]}><MaterialIcons name={icon} size={17} color={color} /></View><Text style={styles.summaryCount}>{count}</Text><Text style={styles.summaryLabel}>{label}</Text></View>;
-}
+function SummaryTile({ label, count, color, icon }: { label: string; count: number; color: string; icon: keyof typeof MaterialIcons.glyphMap }) { return <View style={styles.summaryTile}><View style={[styles.summaryIcon, { backgroundColor: `${color}1C` }]}><MaterialIcons name={icon} size={17} color={color} /></View><Text style={styles.summaryCount}>{count}</Text><Text style={styles.summaryLabel}>{label}</Text></View>; }
+function OrderCard({ order, busy, onAdvance }: { order: BusinessOrder; busy: boolean; onAdvance: () => void }) { const target = nextStatus[order.status as keyof typeof nextStatus]; const prep = Math.max(...order.lines.map((line) => line.prepTimeMinutes), 0); return <View style={styles.orderCard}><View style={styles.orderTop}><View><Text style={styles.orderId}>{order.publicId}</Text><Text style={styles.customer}>{order.deliveryRecipientName}</Text></View><View style={styles.statusPill}><Text style={styles.statusText}>{label(order.status)}</Text></View></View><Text style={styles.items} numberOfLines={2}>{order.lines.map((line) => `${line.quantity}× ${line.dishName}`).join(" · ")}</Text><View style={styles.metaRow}><View style={styles.meta}><MaterialIcons name="schedule" size={14} color="#647268" /><Text style={styles.metaText}>{prep} min prep snapshot</Text></View><View style={styles.meta}><MaterialIcons name="payments" size={14} color="#647268" /><Text style={styles.metaText}>COD · {formatMinor(order.totalMinor)}</Text></View></View><View style={styles.orderBottom}><Text style={styles.prepTime}>Recorded {new Date(order.placedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>{target ? <Pressable onPress={onAdvance} disabled={busy} style={({ pressed }) => [styles.advanceButton, pressed && styles.cardPressed, busy && styles.busyButton]}><Text style={styles.advanceText}>{label(target)}</Text><MaterialIcons name="arrow-forward" size={16} color="#FFFFFF" /></Pressable> : <Text style={styles.openText}>{label(order.status)}</Text>}</View></View>; }
 
-function OrderCard({ order, onAccept }: { order: MerchantOrder; onAccept: () => void }) {
-  const statusLabel = merchantStatus[order.status].label;
-  return (
-    <Pressable accessibilityRole="button" onPress={() => router.push(`/merchant/order/${order.id}` as never)} style={({ pressed }) => [styles.orderCard, pressed && styles.cardPressed]}>
-      <View style={styles.orderTop}><View><Text style={styles.orderId}>{order.id}</Text><Text style={styles.customer}>{order.customerName}</Text></View><QueueStatusPill status={order.status} /></View>
-      <Text style={styles.items} numberOfLines={2}>{order.items.join(" · ")}</Text>
-      <View style={styles.metaRow}><View style={styles.meta}><MaterialIcons name="schedule" size={14} color="#647268" /><Text style={styles.metaText}>{order.receivedAt}</Text></View><View style={styles.meta}><MaterialIcons name="payments" size={14} color="#647268" /><Text style={styles.metaText}>{order.payment} · Rs. {order.total}</Text></View></View>
-      <View style={styles.orderBottom}><Text style={styles.prepTime}>{order.prepTime}</Text>{order.status === "new" ? <Pressable accessibilityRole="button" onPress={(event) => { event.stopPropagation(); onAccept(); }} style={({ pressed }) => [styles.acceptButton, pressed && styles.acceptPressed]}><Text style={styles.acceptText}>Accept order</Text><MaterialIcons name="arrow-forward" size={16} color="#FFFFFF" /></Pressable> : <Text style={styles.openText}>View {statusLabel.toLowerCase()} order</Text>}</View>
-    </Pressable>
-  );
-}
-
-const styles = StyleSheet.create({
-  loading: { flex: 1, alignItems: "center", justifyContent: "center", gap: 11 },
-  loadingText: { color: "#5E6D63", fontSize: 13, lineHeight: 18, fontWeight: "700" },
-  accessButton: { marginTop: 4, paddingHorizontal: 13, paddingVertical: 10, borderRadius: 11, backgroundColor: "#E0F4E7" },
-  accessText: { color: "#064B2C", fontSize: 11, fontWeight: "900" },
-  listContent: { paddingBottom: 22 },
-  summaryRow: { padding: 14, flexDirection: "row", gap: 10, backgroundColor: "#FFFFFF", borderBottomWidth: 1, borderBottomColor: "#E5E9E4" },
-  summaryTile: { flex: 1, minHeight: 83, borderRadius: 16, backgroundColor: "#F4F6F3", padding: 11, justifyContent: "space-between" },
-  summaryIcon: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" },
-  summaryCount: { color: "#17251D", fontSize: 20, lineHeight: 24, fontWeight: "900" },
-  summaryLabel: { color: "#6C7A70", fontSize: 10, lineHeight: 13, fontWeight: "800" },
-  sectionHeader: { paddingHorizontal: 16, paddingTop: 21, paddingBottom: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  sectionTitle: { color: "#17251D", fontSize: 19, lineHeight: 24, letterSpacing: -0.3, fontWeight: "900" },
-  sectionSubtitle: { marginTop: 2, color: "#6C7A70", fontSize: 11, lineHeight: 15, fontWeight: "600" },
-  liveChip: { paddingHorizontal: 8, paddingVertical: 6, borderRadius: 9, backgroundColor: "#E0F4E7", flexDirection: "row", gap: 5, alignItems: "center" },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#168A4A" },
-  liveText: { color: "#17683A", fontSize: 10, lineHeight: 13, fontWeight: "900" },
-  orderCard: { marginHorizontal: 16, marginBottom: 12, borderRadius: 20, padding: 15, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E1E6E0" },
-  orderTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
-  orderId: { color: "#17683A", fontSize: 11, lineHeight: 14, letterSpacing: 0.5, fontWeight: "900" },
-  customer: { marginTop: 3, color: "#17251D", fontSize: 16, lineHeight: 20, fontWeight: "900" },
-  items: { marginTop: 12, color: "#5E6D63", fontSize: 12, lineHeight: 17, fontWeight: "600" },
-  metaRow: { marginTop: 13, flexDirection: "row", gap: 13, flexWrap: "wrap" },
-  meta: { flexDirection: "row", alignItems: "center", gap: 4 },
-  metaText: { color: "#647268", fontSize: 10, lineHeight: 14, fontWeight: "800" },
-  orderBottom: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#EDF0EC", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  prepTime: { color: "#9A5700", fontSize: 11, lineHeight: 15, fontWeight: "900" },
-  acceptButton: { backgroundColor: "#064B2C", borderRadius: 11, paddingVertical: 9, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 5 },
-  acceptText: { color: "#FFFFFF", fontSize: 11, lineHeight: 15, fontWeight: "900" },
-  acceptPressed: { transform: [{ scale: 0.97 }], opacity: 0.92 },
-  openText: { color: "#17683A", fontSize: 11, lineHeight: 15, fontWeight: "900" },
-  cardPressed: { transform: [{ scale: 0.99 }], opacity: 0.92 },
-});
+const styles = StyleSheet.create({ loading: { flex: 1, alignItems: "center", justifyContent: "center", gap: 11, paddingHorizontal: 30 }, loadingTitle: { color: "#17251D", fontSize: 17, fontWeight: "900", textAlign: "center" }, loadingText: { color: "#5E6D63", fontSize: 12, lineHeight: 18, fontWeight: "700", textAlign: "center" }, accessButton: { marginTop: 4, paddingHorizontal: 13, paddingVertical: 10, borderRadius: 11, backgroundColor: "#E0F4E7" }, accessText: { color: "#064B2C", fontSize: 11, fontWeight: "900" }, listContent: { paddingBottom: 22 }, summaryRow: { padding: 14, flexDirection: "row", gap: 10, backgroundColor: "#FFFFFF", borderBottomWidth: 1, borderBottomColor: "#E5E9E4" }, summaryTile: { flex: 1, minHeight: 83, borderRadius: 16, backgroundColor: "#F4F6F3", padding: 11, justifyContent: "space-between" }, summaryIcon: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" }, summaryCount: { color: "#17251D", fontSize: 20, lineHeight: 24, fontWeight: "900" }, summaryLabel: { color: "#6C7A70", fontSize: 10, lineHeight: 13, fontWeight: "800" }, sectionHeader: { paddingHorizontal: 16, paddingTop: 21, paddingBottom: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, sectionTitle: { color: "#17251D", fontSize: 19, lineHeight: 24, letterSpacing: -0.3, fontWeight: "900" }, sectionSubtitle: { marginTop: 2, color: "#6C7A70", fontSize: 11, lineHeight: 15, fontWeight: "600" }, liveChip: { paddingHorizontal: 8, paddingVertical: 6, borderRadius: 9, backgroundColor: "#E0F4E7", flexDirection: "row", gap: 5, alignItems: "center" }, liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#168A4A" }, liveText: { color: "#17683A", fontSize: 10, lineHeight: 13, fontWeight: "900" }, orderCard: { marginHorizontal: 16, marginBottom: 12, borderRadius: 20, padding: 15, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E1E6E0" }, orderTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }, orderId: { color: "#17683A", fontSize: 11, lineHeight: 14, letterSpacing: 0.5, fontWeight: "900" }, customer: { marginTop: 3, color: "#17251D", fontSize: 16, lineHeight: 20, fontWeight: "900" }, statusPill: { borderRadius: 9, backgroundColor: "#E0F4E7", paddingHorizontal: 8, paddingVertical: 5 }, statusText: { color: "#17683A", fontSize: 9, fontWeight: "900" }, items: { marginTop: 12, color: "#5E6D63", fontSize: 12, lineHeight: 17, fontWeight: "600" }, metaRow: { marginTop: 13, flexDirection: "row", gap: 13, flexWrap: "wrap" }, meta: { flexDirection: "row", alignItems: "center", gap: 4 }, metaText: { color: "#647268", fontSize: 10, lineHeight: 14, fontWeight: "800" }, orderBottom: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#EDF0EC", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }, prepTime: { color: "#9A5700", fontSize: 10, lineHeight: 14, fontWeight: "900" }, advanceButton: { backgroundColor: "#064B2C", borderRadius: 11, paddingVertical: 9, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 5 }, advanceText: { color: "#FFFFFF", fontSize: 10, lineHeight: 14, fontWeight: "900" }, busyButton: { opacity: 0.55 }, openText: { color: "#17683A", fontSize: 11, lineHeight: 15, fontWeight: "900" }, cardPressed: { transform: [{ scale: 0.99 }], opacity: 0.92 }, empty: { marginHorizontal: 16, padding: 32, borderRadius: 20, backgroundColor: "#FFFFFF", alignItems: "center", gap: 8, borderWidth: 1, borderColor: "#E1E6E0" }, emptyTitle: { color: "#17251D", fontSize: 15, fontWeight: "900" }, emptyText: { color: "#647268", fontSize: 11, lineHeight: 16, textAlign: "center", fontWeight: "600" }, });

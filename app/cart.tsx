@@ -32,14 +32,14 @@ export default function CartScreen() {
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
-          ListHeaderComponent={<Text style={styles.restaurantHint}>From {cart[0]?.restaurantId === "biryani-house" ? "Biryani House" : cart[0]?.restaurantId === "smash-town" ? "Smash Town" : "Lahori Dera"}</Text>}
+          ListHeaderComponent={<Text style={styles.restaurantHint}>From {cart[0]?.restaurantName ?? (cart[0]?.restaurantId === "biryani-house" ? "Biryani House" : cart[0]?.restaurantId === "smash-town" ? "Smash Town" : "Lahori Dera")}</Text>}
           renderItem={({ item }) => (
             <View style={styles.cartLine}>
-              <Image source={item.image} style={styles.lineImage} resizeMode="cover" />
+              {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.lineImage} resizeMode="cover" /> : item.image ? <Image source={item.image} style={styles.lineImage} resizeMode="cover" /> : <View style={styles.lineImagePlaceholder}><MaterialIcons name="restaurant" size={24} color="#168A4A" /></View>}
               <View style={styles.lineDetails}>
                 <Text style={styles.lineName}>{item.name}</Text>
                 <Text style={styles.lineOptions}>{item.spice}{item.addOns.length ? ` · ${item.addOns.map((addOn) => addOn.name).join(", ")}` : ""}</Text>
-                <Text style={styles.linePrice}>{formatPKR((item.unitPrice + item.addOns.reduce((sum, addOn) => sum + addOn.price, 0)) * item.quantity)}</Text>
+                <Text style={styles.linePrice}>{formatPKR((item.unitPrice + item.addOns.reduce((sum, addOn) => sum + addOn.price, 0)) * item.quantity)}{item.serverMenuItemId ? " · confirmed at checkout" : ""}</Text>
               </View>
               <View style={styles.stepper}>
                 <Pressable onPress={() => changeQuantity(item.id, -1)} style={({ pressed }) => [styles.stepperButton, pressed && styles.iconPressed]}><MaterialIcons name="remove" size={16} color="#064B2C" /></Pressable>
@@ -58,12 +58,12 @@ export default function CartScreen() {
             <View style={styles.addressCard}><View style={styles.addressIcon}><MaterialIcons name="location-on" size={19} color="#064B2C" /></View><View style={styles.addressContent}><Text style={styles.addressLabel}>DELIVER TO</Text><Text style={styles.addressTitle}>F-10 Markaz, Islamabad</Text><Text style={styles.addressSub}>Office building · Ring when you arrive</Text></View><MaterialIcons name="chevron-right" size={21} color="#064B2C" /></View>
             <View style={styles.summaryCard}>
               <Text style={styles.summaryTitle}>Bill details</Text>
-              <BillRow label="Item subtotal" value={formatPKR(subtotal)} />
-              <BillRow label="Delivery fee" value={formatPKR(deliveryFee)} />
-              <BillRow label="Service fee" value={formatPKR(serviceFee)} />
+              <BillRow label="Estimated item subtotal" value={formatPKR(subtotal)} />
+              <BillRow label="Estimated delivery fee" value={formatPKR(deliveryFee)} />
+              <BillRow label="Estimated service fee" value={formatPKR(serviceFee)} />
               {discount > 0 ? <BillRow label="Promo discount" value={`− ${formatPKR(discount)}`} positive /> : null}
               <View style={styles.divider} />
-              <BillRow label="Total" value={formatPKR(total)} total />
+              <BillRow label="Estimated total" value={formatPKR(total)} total />
             </View>
             <PrimaryButton label={`Continue · ${formatPKR(total)}`} onPress={() => router.push("/checkout" as never)} icon="arrow-forward" />
           </>}
@@ -87,6 +87,7 @@ const styles = StyleSheet.create({
   restaurantHint: { color: "#6C7A70", fontSize: 12, lineHeight: 16, fontWeight: "700", marginBottom: 10 },
   cartLine: { minHeight: 100, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E7E8E2", borderRadius: 18, padding: 10, flexDirection: "row", gap: 10, marginBottom: 9 },
   lineImage: { width: 78, height: 78, borderRadius: 13, backgroundColor: "#E0F4E7" },
+  lineImagePlaceholder: { width: 78, height: 78, borderRadius: 13, backgroundColor: "#E0F4E7", alignItems: "center", justifyContent: "center" },
   lineDetails: { flex: 1, paddingTop: 2 },
   lineName: { color: "#17251D", fontSize: 14, lineHeight: 18, fontWeight: "900" },
   lineOptions: { color: "#6C7A70", fontSize: 10, lineHeight: 14, fontWeight: "600", marginTop: 3 },
@@ -122,4 +123,3 @@ const styles = StyleSheet.create({
   emptyText: { textAlign: "center", color: "#6C7A70", fontSize: 13, lineHeight: 19, fontWeight: "600", marginTop: 5, marginBottom: 23 },
   iconPressed: { opacity: 0.62 },
 });
-

@@ -1,6 +1,7 @@
 import { boolean, index, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 import { BUSINESS_TYPES, WORKSPACE_APPLICATION_STATUSES, WORKSPACE_APPLICATION_TYPES, WORKSPACE_MEMBERSHIP_STATUSES, WORKSPACE_TYPES } from "../shared/workspace";
 import { BUSINESS_CHECKLIST_STATUSES, BUSINESS_DOCUMENT_STATUSES, BUSINESS_DOCUMENT_TYPES, BUSINESS_OPERATIONAL_STATUSES, BUSINESS_SCOPE_TYPES, BUSINESS_STAFF_ROLES } from "../shared/business";
+import { ORDER_PAYMENT_METHODS, ORDER_PAYMENT_STATUSES, ORDER_STATUSES } from "../shared/order";
 
 export { BUSINESS_TYPES, WORKSPACE_APPLICATION_STATUSES, WORKSPACE_APPLICATION_TYPES, WORKSPACE_MEMBERSHIP_STATUSES, WORKSPACE_TYPES } from "../shared/workspace";
 
@@ -173,6 +174,76 @@ export const menuModifiers = mysqlTable("menu_modifiers", {
   id: int("id").autoincrement().primaryKey(), menuItemId: int("menuItemId").notNull(), name: varchar("name", { length: 120 }).notNull(), priceMinor: int("priceMinor").default(0).notNull(), isRequired: boolean("isRequired").default(false).notNull(), isAvailable: boolean("isAvailable").default(true).notNull(), archivedAt: timestamp("archivedAt"), archivedByUserId: int("archivedByUserId"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [index("menu_modifiers_item_index").on(table.menuItemId, table.isAvailable)]);
 
+/** Durable order aggregate. Money is always represented in PKR minor units. */
+export const orders = mysqlTable("orders", {
+  id: int("id").autoincrement().primaryKey(),
+  publicId: varchar("publicId", { length: 40 }).notNull(),
+  customerUserId: int("customerUserId").notNull(),
+  organisationId: int("organisationId").notNull(),
+  outletId: int("outletId"),
+  kitchenBrandId: int("kitchenBrandId"),
+  status: mysqlEnum("status", ORDER_STATUSES).default("placed").notNull(),
+  paymentMethod: mysqlEnum("paymentMethod", ORDER_PAYMENT_METHODS).default("cod").notNull(),
+  paymentStatus: mysqlEnum("paymentStatus", ORDER_PAYMENT_STATUSES).default("cash_due").notNull(),
+  deliveryRecipientName: varchar("deliveryRecipientName", { length: 160 }).notNull(),
+  deliveryPhoneE164: varchar("deliveryPhoneE164", { length: 20 }).notNull(),
+  deliveryAddressLine1: varchar("deliveryAddressLine1", { length: 255 }).notNull(),
+  deliveryAddressLine2: varchar("deliveryAddressLine2", { length: 255 }),
+  deliveryCity: varchar("deliveryCity", { length: 120 }).notNull(),
+  deliveryInstructions: varchar("deliveryInstructions", { length: 500 }),
+  itemSubtotalMinor: int("itemSubtotalMinor").notNull(),
+  deliveryFeeMinor: int("deliveryFeeMinor").notNull(),
+  serviceFeeMinor: int("serviceFeeMinor").default(0).notNull(),
+  discountMinor: int("discountMinor").default(0).notNull(),
+  totalMinor: int("totalMinor").notNull(),
+  idempotencyKey: varchar("idempotencyKey", { length: 100 }).notNull(),
+  placedAt: timestamp("placedAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("orders_public_id_unique").on(table.publicId),
+  uniqueIndex("orders_customer_idempotency_unique").on(table.customerUserId, table.idempotencyKey),
+  index("orders_customer_created_index").on(table.customerUserId, table.placedAt),
+  index("orders_business_status_index").on(table.organisationId, table.status, table.placedAt),
+]);
+
+/** Immutable sold-dish snapshot. Live item IDs are retained for traceability but may be null in future imports. */
+export const orderItems = mysqlTable("order_items", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  menuItemId: int("menuItemId"),
+  dishName: varchar("dishName", { length: 160 }).notNull(),
+  dishDescription: text("dishDescription"),
+  dishImageKey: varchar("dishImageKey", { length: 500 }),
+  unitPriceMinor: int("unitPriceMinor").notNull(),
+  modifierTotalMinor: int("modifierTotalMinor").default(0).notNull(),
+  lineTotalMinor: int("lineTotalMinor").notNull(),
+  quantity: int("quantity").notNull(),
+  prepTimeMinutes: int("prepTimeMinutes").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("order_items_order_index").on(table.orderId)]);
+
+/** Immutable selected-modifier snapshot for an order item. */
+export const orderItemModifiers = mysqlTable("order_item_modifiers", {
+  id: int("id").autoincrement().primaryKey(),
+  orderItemId: int("orderItemId").notNull(),
+  menuModifierId: int("menuModifierId"),
+  modifierName: varchar("modifierName", { length: 120 }).notNull(),
+  unitPriceMinor: int("unitPriceMinor").notNull(),
+  quantity: int("quantity").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("order_item_modifiers_item_index").on(table.orderItemId)]);
+
+/** Append-only transition history for customer support and operational audit. */
+export const orderStatusHistory = mysqlTable("order_status_history", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  fromStatus: mysqlEnum("fromStatus", ORDER_STATUSES),
+  toStatus: mysqlEnum("toStatus", ORDER_STATUSES).notNull(),
+  actorUserId: int("actorUserId"),
+  note: varchar("note", { length: 500 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("order_status_history_order_index").on(table.orderId, table.createdAt)]);
+
 export const businessDocuments = mysqlTable("business_documents", {
   id: int("id").autoincrement().primaryKey(), applicationId: int("applicationId").notNull(), organisationId: int("organisationId"), uploadedByUserId: int("uploadedByUserId").notNull(), documentType: mysqlEnum("documentType", BUSINESS_DOCUMENT_TYPES).notNull(), status: mysqlEnum("status", BUSINESS_DOCUMENT_STATUSES).default("uploaded").notNull(), storageKey: varchar("storageKey", { length: 500 }).notNull(), originalName: varchar("originalName", { length: 255 }).notNull(), mimeType: varchar("mimeType", { length: 120 }).notNull(), sizeBytes: int("sizeBytes").notNull(), reviewerNote: varchar("reviewerNote", { length: 1000 }), reviewedByUserId: int("reviewedByUserId"), reviewedAt: timestamp("reviewedAt"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [index("business_documents_application_index").on(table.applicationId, table.documentType), index("business_documents_reviewer_index").on(table.reviewedByUserId)]);
@@ -201,3 +272,7 @@ export type BusinessOrganisation = typeof businessOrganisations.$inferSelect;
 export type BusinessOutlet = typeof businessOutlets.$inferSelect;
 export type CloudKitchen = typeof cloudKitchens.$inferSelect;
 export type KitchenBrand = typeof kitchenBrands.$inferSelect;
+export type Order = typeof orders.$inferSelect;
+export type OrderItem = typeof orderItems.$inferSelect;
+export type OrderItemModifier = typeof orderItemModifiers.$inferSelect;
+export type OrderStatusHistory = typeof orderStatusHistory.$inferSelect;

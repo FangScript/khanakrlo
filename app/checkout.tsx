@@ -1,86 +1,45 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { PrimaryButton, ScreenBack } from "@/components/khana-ui";
 import { ScreenContainer } from "@/components/screen-container";
-import { formatPKR, getCartSubtotal, restaurants } from "@/lib/khana-data";
 import { useKhanaStore } from "@/lib/khana-store";
+import { trpc } from "@/lib/trpc";
 
-const deliveryFee = 89;
-const serviceFee = 29;
+type Quote = { itemSubtotalMinor: number; deliveryFeeMinor: number; serviceFeeMinor: number; discountMinor: number; totalMinor: number };
+function formatMinor(value: number) { return `PKR ${(value / 100).toLocaleString("en-PK", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`; }
 
 export default function CheckoutScreen() {
-  const { cart, placeOrder } = useKhanaStore();
-  const [payment, setPayment] = useState<"cash" | "jazzcash">("cash");
-  const subtotal = useMemo(() => getCartSubtotal(cart), [cart]);
-  const total = subtotal + deliveryFee + serviceFee;
-  const restaurant = restaurants.find((item) => item.id === cart[0]?.restaurantId);
+  const { cart, customer, clearCart } = useKhanaStore();
+  const [idempotencyKey] = useState(() => `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`);
+  const liveCart = cart.length > 0 && cart.every((line) => line.serverMenuItemId && line.serverBusinessId) && new Set(cart.map((line) => line.serverBusinessId)).size === 1;
+  const deliveryAddress = useMemo(() => ({ recipientName: customer?.name ?? "", phoneE164: customer?.phone ?? "", addressLine1: customer?.deliveryAddress ?? "", city: (customer?.deliveryAddress?.split(",").pop()?.trim() || "Islamabad"), instructions: "" }), [customer]);
+  const input = useMemo(() => liveCart && customer ? { items: cart.map((line) => ({ menuItemId: line.serverMenuItemId!, quantity: line.quantity, modifierIds: line.serverModifierIds ?? [] })), deliveryAddress, paymentMethod: "cod" as const } : null, [cart, customer, deliveryAddress, liveCart]);
+  const quote = trpc.orders.quote.useQuery(input ?? { items: [{ menuItemId: 1, quantity: 1, modifierIds: [] }], deliveryAddress: { recipientName: "Unavailable", phoneE164: "+920000000000", addressLine1: "Unavailable", city: "Islamabad" }, paymentMethod: "cod" }, { enabled: Boolean(input), retry: false });
+  const place = trpc.orders.place.useMutation();
+  const priced = quote.data as Quote | undefined;
 
-  if (cart.length === 0 || !restaurant) {
-    return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.screen}><ScreenBack title="Checkout" /><View style={styles.empty}><Text style={styles.emptyTitle}>Nothing to check out yet</Text><PrimaryButton label="Browse restaurants" onPress={() => router.replace("/" as never)} /></View></View></ScreenContainer>;
+  if (!cart.length) return <EmptyCheckout title="Nothing to check out yet" copy="Add a dish from a live Khana KarLo Business to begin a secure order." />;
+  if (!liveCart) return <EmptyCheckout title="Refresh your cart from a live menu" copy="Production orders can only contain dishes selected from one approved live Business. Remove older sample-menu lines and choose a live kitchen." />;
+  if (!customer) return <EmptyCheckout title="Sign in to place an order" copy="A customer profile is required to create a durable delivery and payment snapshot." />;
+
+  async function submitOrder() {
+    if (!input || !priced) return;
+    try {
+      const order = await place.mutateAsync({ ...input, idempotencyKey });
+      clearCart();
+      router.replace({ pathname: "/order-tracking", params: { orderId: String(order.id) } } as never);
+    } catch (error) {
+      Alert.alert("Could not place order", error instanceof Error ? error.message : "Please check your connection and try again. Your cart has been retained.");
+    }
   }
 
-  return (
-    <ScreenContainer edges={["top", "bottom", "left", "right"]}>
-      <View style={styles.screen}>
-        <ScreenBack title="Checkout" />
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-          <Text style={styles.step}>STEP 1 OF 1</Text>
-          <Text style={styles.title}>Confirm your order</Text>
-          <Text style={styles.sub}>Almost there. Check delivery and payment.</Text>
-          <View style={styles.section}><Text style={styles.sectionTitle}>Delivery address</Text><View style={styles.detailCard}><View style={styles.detailIcon}><MaterialIcons name="location-on" size={19} color="#064B2C" /></View><View style={styles.detailText}><Text style={styles.detailTitle}>F-10 Markaz, Islamabad</Text><Text style={styles.detailSub}>Office building · Ring when you arrive</Text></View><MaterialIcons name="edit" size={18} color="#064B2C" /></View></View>
-          <View style={styles.section}><Text style={styles.sectionTitle}>Payment method</Text><PaymentChoice active={payment === "cash"} title="Cash on delivery" subtitle="Pay securely when your order arrives" icon="payments" onPress={() => setPayment("cash")} /><PaymentChoice active={payment === "jazzcash"} title="JazzCash" subtitle="Wallet checkout for a faster handoff" icon="account-balance-wallet" onPress={() => setPayment("jazzcash")} /></View>
-          <View style={styles.section}><Text style={styles.sectionTitle}>Order from {restaurant.name}</Text><View style={styles.receiptCard}><ReceiptRow label="Item subtotal" value={formatPKR(subtotal)} /><ReceiptRow label="Delivery fee" value={formatPKR(deliveryFee)} /><ReceiptRow label="Service fee" value={formatPKR(serviceFee)} /><View style={styles.divider} /><ReceiptRow label="Total to pay" value={formatPKR(total)} total /></View></View>
-          <PrimaryButton label={`Place order · ${formatPKR(total)}`} onPress={() => { placeOrder(restaurant.name, total); router.replace("/order-tracking" as never); }} icon="check-circle" />
-          <Text style={styles.terms}>By placing your order, you agree to the restaurant’s preparation time and delivery terms.</Text>
-        </ScrollView>
-      </View>
-    </ScreenContainer>
-  );
+  return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.screen}><ScreenBack title="Checkout" /><ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}><Text style={styles.step}>SECURE COD CHECKOUT</Text><Text style={styles.title}>Confirm your order</Text><Text style={styles.sub}>Prices and availability are verified by the Restaurant when you place the order.</Text><View style={styles.section}><Text style={styles.sectionTitle}>Delivery snapshot</Text><View style={styles.detailCard}><View style={styles.detailIcon}><MaterialIcons name="location-on" size={19} color="#064B2C" /></View><View style={styles.detailText}><Text style={styles.detailTitle}>{deliveryAddress.addressLine1}</Text><Text style={styles.detailSub}>{deliveryAddress.recipientName} · {deliveryAddress.phoneE164}</Text></View></View></View><View style={styles.section}><Text style={styles.sectionTitle}>Payment method</Text><View style={styles.payment}><View style={styles.radio}><View style={styles.radioDot} /></View><View style={styles.paymentIcon}><MaterialIcons name="payments" size={20} color="#064B2C" /></View><View style={styles.paymentText}><Text style={styles.paymentTitle}>Cash on delivery</Text><Text style={styles.paymentSub}>Pay the exact recorded amount when your order arrives.</Text></View></View></View><View style={styles.section}><Text style={styles.sectionTitle}>Server quote</Text>{quote.isLoading ? <View style={styles.quoteLoading}><ActivityIndicator color="#168A4A" size="small" /><Text style={styles.quoteLoadingText}>Checking live prices and availability…</Text></View> : quote.error ? <View style={styles.quoteError}><MaterialIcons name="error-outline" size={18} color="#B73B28" /><Text style={styles.quoteErrorText}>{quote.error.message}</Text></View> : priced ? <View style={styles.receiptCard}><ReceiptRow label="Item subtotal" value={formatMinor(priced.itemSubtotalMinor)} /><ReceiptRow label="Delivery fee" value={formatMinor(priced.deliveryFeeMinor)} /><ReceiptRow label="Service fee" value={formatMinor(priced.serviceFeeMinor)} />{priced.discountMinor ? <ReceiptRow label="Discount" value={`− ${formatMinor(priced.discountMinor)}`} /> : null}<View style={styles.divider} /><ReceiptRow label="Total to pay" value={formatMinor(priced.totalMinor)} total /></View> : null}</View><PrimaryButton label={place.isPending ? "Placing secure order…" : priced ? `Place COD order · ${formatMinor(priced.totalMinor)}` : "Waiting for live quote"} onPress={() => void submitOrder()} icon="check-circle" /><Text style={styles.terms}>Your dish names, modifiers, delivery address, payment method, and all prices are snapshotted when the order is accepted by the server.</Text></ScrollView></View></ScreenContainer>;
 }
 
-function PaymentChoice({ active, title, subtitle, icon, onPress }: { active: boolean; title: string; subtitle: string; icon: keyof typeof MaterialIcons.glyphMap; onPress: () => void }) {
-  return <Pressable onPress={onPress} style={({ pressed }) => [styles.payment, active && styles.paymentActive, pressed && styles.pressed]}><View style={[styles.radio, active && styles.radioActive]}>{active ? <View style={styles.radioDot} /> : null}</View><View style={styles.paymentIcon}><MaterialIcons name={icon} size={20} color="#064B2C" /></View><View style={styles.paymentText}><Text style={styles.paymentTitle}>{title}</Text><Text style={styles.paymentSub}>{subtitle}</Text></View></Pressable>;
-}
+function EmptyCheckout({ title, copy }: { title: string; copy: string }) { return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.screen}><ScreenBack title="Checkout" /><View style={styles.empty}><View style={styles.emptyIcon}><MaterialIcons name="shopping-bag" size={33} color="#064B2C" /></View><Text style={styles.emptyTitle}>{title}</Text><Text style={styles.emptyCopy}>{copy}</Text><PrimaryButton label="Browse live kitchens" onPress={() => router.replace("/" as never)} icon="restaurant-menu" /></View></View></ScreenContainer>; }
+function ReceiptRow({ label, value, total = false }: { label: string; value: string; total?: boolean }) { return <View style={styles.receiptRow}><Text style={[styles.receiptLabel, total && styles.receiptTotal]}>{label}</Text><Text style={[styles.receiptValue, total && styles.receiptValueTotal]}>{value}</Text></View>; }
 
-function ReceiptRow({ label, value, total = false }: { label: string; value: string; total?: boolean }) {
-  return <View style={styles.receiptRow}><Text style={[styles.receiptLabel, total && styles.receiptTotal]}>{label}</Text><Text style={[styles.receiptValue, total && styles.receiptValueTotal]}>{value}</Text></View>;
-}
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#FFF8ED", paddingHorizontal: 16, paddingTop: 6 },
-  content: { paddingBottom: 25 },
-  step: { color: "#FF6B00", fontSize: 10, lineHeight: 13, letterSpacing: 1.1, fontWeight: "900" },
-  title: { marginTop: 4, color: "#17251D", fontSize: 25, lineHeight: 31, fontWeight: "900", letterSpacing: -0.5 },
-  sub: { marginTop: 3, color: "#6C7A70", fontSize: 13, lineHeight: 18, fontWeight: "600" },
-  section: { marginTop: 22 },
-  sectionTitle: { color: "#17251D", fontSize: 15, lineHeight: 19, fontWeight: "900", marginBottom: 9 },
-  detailCard: { minHeight: 70, borderRadius: 17, paddingHorizontal: 12, backgroundColor: "#E0F4E7", flexDirection: "row", alignItems: "center", gap: 10 },
-  detailIcon: { width: 35, height: 35, borderRadius: 11, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  detailText: { flex: 1 },
-  detailTitle: { color: "#064B2C", fontSize: 13, lineHeight: 17, fontWeight: "900" },
-  detailSub: { color: "#4E6956", fontSize: 10, lineHeight: 14, fontWeight: "600", marginTop: 1 },
-  payment: { minHeight: 72, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E7E8E2", borderRadius: 16, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 8 },
-  paymentActive: { borderColor: "#168A4A", backgroundColor: "#F6FCF7" },
-  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: "#ABB7AE", alignItems: "center", justifyContent: "center" },
-  radioActive: { borderColor: "#168A4A" },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#168A4A" },
-  paymentIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: "#FFF0E6", alignItems: "center", justifyContent: "center" },
-  paymentText: { flex: 1 },
-  paymentTitle: { color: "#17251D", fontSize: 13, lineHeight: 17, fontWeight: "900" },
-  paymentSub: { color: "#6C7A70", fontSize: 10, lineHeight: 14, fontWeight: "600", marginTop: 1 },
-  receiptCard: { backgroundColor: "#FFFFFF", borderRadius: 17, borderWidth: 1, borderColor: "#E7E8E2", padding: 14 },
-  receiptRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
-  receiptLabel: { color: "#6C7A70", fontSize: 12, lineHeight: 16, fontWeight: "600" },
-  receiptValue: { color: "#17251D", fontSize: 12, lineHeight: 16, fontWeight: "800" },
-  receiptTotal: { color: "#17251D", fontSize: 15, lineHeight: 19, fontWeight: "900" },
-  receiptValueTotal: { color: "#064B2C", fontSize: 16, lineHeight: 20, fontWeight: "900" },
-  divider: { height: 1, backgroundColor: "#E7E8E2", marginTop: 11, marginBottom: 1 },
-  terms: { color: "#879187", fontSize: 10, lineHeight: 14, fontWeight: "600", textAlign: "center", marginTop: 12, paddingHorizontal: 14 },
-  empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 18 },
-  emptyTitle: { color: "#17251D", fontSize: 19, lineHeight: 24, fontWeight: "900" },
-  pressed: { opacity: 0.75, transform: [{ scale: 0.985 }] },
-});
-
+const styles = StyleSheet.create({ screen: { flex: 1, backgroundColor: "#FFF8ED", paddingHorizontal: 16, paddingTop: 6 }, content: { paddingBottom: 26 }, step: { color: "#FF6B00", fontSize: 10, letterSpacing: 1.1, fontWeight: "900" }, title: { marginTop: 4, color: "#17251D", fontSize: 25, lineHeight: 31, fontWeight: "900" }, sub: { marginTop: 3, color: "#647369", fontSize: 12, lineHeight: 17, fontWeight: "600" }, section: { marginTop: 21 }, sectionTitle: { color: "#17251D", fontSize: 15, lineHeight: 19, fontWeight: "900", marginBottom: 9 }, detailCard: { minHeight: 70, borderRadius: 17, paddingHorizontal: 12, backgroundColor: "#E0F4E7", flexDirection: "row", alignItems: "center", gap: 10 }, detailIcon: { width: 35, height: 35, borderRadius: 11, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" }, detailText: { flex: 1 }, detailTitle: { color: "#064B2C", fontSize: 13, lineHeight: 17, fontWeight: "900" }, detailSub: { color: "#4E6956", fontSize: 10, lineHeight: 14, fontWeight: "600", marginTop: 1 }, payment: { minHeight: 72, backgroundColor: "#F6FCF7", borderWidth: 1, borderColor: "#168A4A", borderRadius: 16, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 9 }, radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: "#168A4A", alignItems: "center", justifyContent: "center" }, radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#168A4A" }, paymentIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: "#FFF0E6", alignItems: "center", justifyContent: "center" }, paymentText: { flex: 1 }, paymentTitle: { color: "#17251D", fontSize: 13, lineHeight: 17, fontWeight: "900" }, paymentSub: { color: "#6C7A70", fontSize: 10, lineHeight: 14, fontWeight: "600", marginTop: 1 }, receiptCard: { backgroundColor: "#FFFFFF", borderRadius: 17, borderWidth: 1, borderColor: "#E7E8E2", padding: 14 }, receiptRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 }, receiptLabel: { color: "#6C7A70", fontSize: 12, lineHeight: 16, fontWeight: "600" }, receiptValue: { color: "#17251D", fontSize: 12, lineHeight: 16, fontWeight: "800" }, receiptTotal: { color: "#17251D", fontSize: 15, lineHeight: 19, fontWeight: "900" }, receiptValueTotal: { color: "#064B2C", fontSize: 16, lineHeight: 20, fontWeight: "900" }, divider: { height: 1, backgroundColor: "#E7E8E2", marginTop: 11, marginBottom: 1 }, quoteLoading: { minHeight: 74, padding: 14, borderRadius: 16, backgroundColor: "#F1F6F0", flexDirection: "row", alignItems: "center", gap: 9 }, quoteLoadingText: { color: "#57705D", fontSize: 11, fontWeight: "800" }, quoteError: { minHeight: 66, padding: 12, borderRadius: 16, backgroundColor: "#FFF0ED", flexDirection: "row", alignItems: "center", gap: 8 }, quoteErrorText: { flex: 1, color: "#A03F2E", fontSize: 11, lineHeight: 15, fontWeight: "700" }, terms: { color: "#879187", fontSize: 10, lineHeight: 14, fontWeight: "600", textAlign: "center", marginTop: 12, paddingHorizontal: 14 }, empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 27, gap: 10 }, emptyIcon: { width: 76, height: 76, borderRadius: 25, backgroundColor: "#E0F4E7", alignItems: "center", justifyContent: "center" }, emptyTitle: { marginTop: 8, color: "#17251D", fontSize: 20, lineHeight: 26, fontWeight: "900", textAlign: "center" }, emptyCopy: { color: "#68776D", fontSize: 12, lineHeight: 18, textAlign: "center", fontWeight: "600", marginBottom: 12 }, });

@@ -84,3 +84,5 @@
 - [x] Produce a complete current-state application documentation report with the approved launch roadmap.
 - [x] Produce the detailed Restaurant Management System Design and audit report for the controlled pilot.
 - [x] Add approved-Business-only Restaurant menu CRUD with dish prices, modifiers, availability, and archive controls.
+- [x] Build a persisted server-authoritative Order Service with immutable item, modifier, price, total, address, and status snapshots.
+- [x] Add secure approved-Business dish-image upload and responsive image delivery in customer menus.

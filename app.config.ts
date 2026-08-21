@@ -122,6 +122,13 @@ const config: ExpoConfig = {
       },
     ],
     [
+      "expo-image-picker",
+      {
+        photosPermission: "Allow Khana KarLo Business to select dish photos for its customer menu.",
+        cameraPermission: "Allow Khana KarLo Business to photograph dishes for its customer menu.",
+      },
+    ],
+    [
       "expo-build-properties",
       {
         android: {

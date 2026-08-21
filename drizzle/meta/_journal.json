@@ -50,6 +50,13 @@
       "when": 1787300049902,
       "tag": "0006_amused_mongoose",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1787300824356,
+      "tag": "0007_milky_firebrand",
+      "breakpoints": true
     }
   ]
 }

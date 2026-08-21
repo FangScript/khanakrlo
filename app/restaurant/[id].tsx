@@ -1,190 +1,52 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import { Image as ExpoImage } from "expo-image";
 import { useLocalSearchParams } from "expo-router";
-import { FlatList, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useState } from "react";
+import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { CartBar, PrimaryButton, ScreenBack } from "@/components/khana-ui";
 import { ScreenContainer } from "@/components/screen-container";
-import { restaurants, type AddOn, type MenuItem } from "@/lib/khana-data";
+import { menuImageUrl } from "@/lib/menu-image";
 import { useKhanaStore } from "@/lib/khana-store";
+import { trpc } from "@/lib/trpc";
 
-const fallbackRestaurant = restaurants[0];
+type LiveModifier = { id: number; menuItemId: number; name: string; priceMinor: number; isRequired: boolean };
+type LiveItem = { id: number; categoryId: number; name: string; description: string | null; priceMinor: number; prepTimeMinutes: number; imageKey: string | null };
+type LiveCategory = { id: number; name: string };
+type LiveMenu = { organisation: { id: number; displayName: string; city: string; cuisine: string; description: string | null; deliveryFeeMinor: number }; categories: LiveCategory[]; items: LiveItem[]; modifiers: LiveModifier[] };
+
+function formatMinor(value: number) { return `PKR ${(value / 100).toLocaleString("en-PK", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`; }
 
 export default function RestaurantScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const restaurant = restaurants.find((item) => item.id === id) ?? fallbackRestaurant;
-  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
+  const businessId = Number(id);
+  const menu = trpc.discovery.liveBusinessMenu.useQuery({ businessId: Number.isInteger(businessId) && businessId > 0 ? businessId : 0 }, { enabled: Number.isInteger(businessId) && businessId > 0, retry: false });
+  const [selectedItem, setSelectedItem] = useState<LiveItem | null>(null);
+  const data = menu.data as LiveMenu | undefined;
 
-  return (
-    <ScreenContainer edges={["top", "bottom", "left", "right"]}>
-      <View style={styles.screen}>
-      <FlatList
-        data={restaurant.menu}
-        keyExtractor={(item) => item.id}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={<RestaurantHeader restaurant={restaurant} />}
-        renderItem={({ item }) => <MenuItemCard item={item} onPress={() => setSelectedItem(item)} />}
-        ListFooterComponent={<View style={styles.footerSpace} />}
-      />
-      <CartBar />
-      <CustomizeSheet item={selectedItem} onClose={() => setSelectedItem(null)} />
-      </View>
-    </ScreenContainer>
-  );
+  if (!Number.isInteger(businessId) || businessId <= 0) return <MenuAccessState icon="storefront" title="Choose a live kitchen" copy="Customer menus are available only for approved Khana KarLo Businesses." />;
+  if (menu.isLoading) return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.loading}><ActivityIndicator color="#168A4A" /><Text style={styles.loadingCopy}>Loading the live menu…</Text></View></ScreenContainer>;
+  if (menu.error || !data) return <MenuAccessState icon="cloud-off" title="This menu is unavailable" copy="The Business may be paused, outside its delivery zone, or no longer live. Return to discovery and choose another kitchen." />;
+
+  return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.screen}><FlatList data={data.items} keyExtractor={(item) => String(item.id)} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent} ListHeaderComponent={<RestaurantHeader menu={data} />} renderItem={({ item }) => <LiveMenuItemCard item={item} modifiers={data.modifiers.filter((modifier) => modifier.menuItemId === item.id)} onPress={() => setSelectedItem(item)} />} ListEmptyComponent={<View style={styles.empty}><MaterialIcons name="restaurant-menu" size={30} color="#064B2C" /><Text style={styles.emptyTitle}>Menu being prepared</Text><Text style={styles.emptyCopy}>This kitchen is live but has not published an available dish yet.</Text></View>} ListFooterComponent={<View style={styles.footerSpace} />} /><CartBar /><CustomizeSheet item={selectedItem} business={data.organisation} modifiers={data.modifiers.filter((modifier) => modifier.menuItemId === selectedItem?.id)} onClose={() => setSelectedItem(null)} /></View></ScreenContainer>;
 }
 
-function RestaurantHeader({ restaurant }: { restaurant: typeof fallbackRestaurant }) {
-  return (
-    <>
-      <ScreenBack />
-      <View style={styles.hero}>
-        <Image source={restaurant.image} resizeMode="cover" style={styles.heroImage} />
-        <View style={styles.heroOverlay} />
-        <View style={styles.openPill}><View style={styles.openDot} /><Text style={styles.openText}>Open now</Text></View>
-        <View style={styles.heroContent}>
-          <Text style={styles.heroTitle}>{restaurant.name}</Text>
-          <Text style={styles.heroCuisine}>{restaurant.cuisine}</Text>
-          <View style={styles.heroMeta}>
-            <View style={styles.heroMetric}><MaterialIcons name="star" size={14} color="#FFB73D" /><Text style={styles.heroMetricText}>{restaurant.rating} ({restaurant.reviewCount}+)</Text></View>
-            <View style={styles.heroMetric}><MaterialIcons name="delivery-dining" size={15} color="#FFB73D" /><Text style={styles.heroMetricText}>{restaurant.eta}</Text></View>
-          </View>
-        </View>
-      </View>
-      <View style={styles.deliveryNote}>
-        <View style={styles.deliveryNoteIcon}><MaterialIcons name="local-offer" size={18} color="#FF6B00" /></View>
-        <Text style={styles.deliveryNoteText}>{restaurant.offer}</Text>
-      </View>
-      <View style={styles.menuHeading}>
-        <Text style={styles.menuTitle}>Menu</Text>
-        <Text style={styles.menuSub}>Made fresh when you order</Text>
-      </View>
-      <View style={styles.categoryPill}><Text style={styles.categoryPillText}>Popular picks</Text></View>
-    </>
-  );
-}
+function MenuAccessState({ icon, title, copy }: { icon: keyof typeof MaterialIcons.glyphMap; title: string; copy: string }) { return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.access}><ScreenBack /><View style={styles.accessCenter}><View style={styles.accessIcon}><MaterialIcons name={icon} size={30} color="#064B2C" /></View><Text style={styles.accessTitle}>{title}</Text><Text style={styles.accessCopy}>{copy}</Text></View></View></ScreenContainer>; }
 
-function MenuItemCard({ item, onPress }: { item: MenuItem; onPress: () => void }) {
-  return (
-    <View style={styles.menuCard}>
-      <View style={styles.menuDetails}>
-        {item.isPopular ? <View style={styles.popularPill}><Text style={styles.popularPillText}>POPULAR</Text></View> : null}
-        <Text style={styles.menuItemName}>{item.name}</Text>
-        <Text numberOfLines={2} style={styles.menuItemDescription}>{item.description}</Text>
-        <Text style={styles.menuItemPrice}>Rs. {item.price.toLocaleString("en-PK")}</Text>
-      </View>
-      <View style={styles.menuVisual}>
-        <Image source={item.image} style={styles.menuImage} resizeMode="cover" />
-        <Pressable onPress={onPress} style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}>
-          <MaterialIcons name="add" size={19} color="#FFF8ED" />
-          <Text style={styles.addButtonText}>Add</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
+function RestaurantHeader({ menu }: { menu: LiveMenu }) { return <><ScreenBack /><View style={styles.hero}><View style={styles.heroIcon}><MaterialIcons name="restaurant" size={31} color="#FFF8ED" /></View><View style={styles.openPill}><View style={styles.openDot} /><Text style={styles.openText}>OPEN</Text></View><Text style={styles.heroTitle}>{menu.organisation.displayName}</Text><Text style={styles.heroCuisine}>{menu.organisation.cuisine} · {menu.organisation.city}</Text><Text numberOfLines={2} style={styles.heroDescription}>{menu.organisation.description ?? "Fresh dishes prepared by a live Khana KarLo Business."}</Text></View><View style={styles.deliveryNote}><MaterialIcons name="delivery-dining" size={19} color="#FF6B00" /><Text style={styles.deliveryText}>Delivery from {formatMinor(menu.organisation.deliveryFeeMinor)}. Final price and availability are confirmed at checkout.</Text></View><View style={styles.menuHeading}><View><Text style={styles.menuTitle}>Live menu</Text><Text style={styles.menuSub}>{menu.categories.length} categories · prices in PKR</Text></View><View style={styles.liveBadge}><MaterialIcons name="verified" size={14} color="#168A4A" /><Text style={styles.liveBadgeText}>Verified</Text></View></View></>; }
 
-function CustomizeSheet({ item, onClose }: { item: MenuItem | null; onClose: () => void }) {
-  const { addItem } = useKhanaStore();
-  const [spice, setSpice] = useState("Regular");
-  const [addOns, setAddOns] = useState<AddOn[]>([]);
+function LiveMenuItemCard({ item, modifiers, onPress }: { item: LiveItem; modifiers: LiveModifier[]; onPress: () => void }) { const imageUrl = menuImageUrl(item.imageKey); return <View style={styles.menuCard}><View style={styles.menuDetails}><Text style={styles.menuItemName}>{item.name}</Text><Text numberOfLines={2} style={styles.menuDescription}>{item.description ?? "Prepared fresh to order."}</Text><Text style={styles.menuPrice}>{formatMinor(item.priceMinor)}</Text><Text style={styles.prepTime}>{item.prepTimeMinutes} min prep{modifiers.length ? ` · ${modifiers.length} option${modifiers.length === 1 ? "" : "s"}` : ""}</Text></View><View style={styles.menuVisual}>{imageUrl ? <ExpoImage source={imageUrl} style={styles.menuImage} contentFit="cover" transition={150} /> : <View style={styles.menuPlaceholder}><MaterialIcons name="restaurant" size={27} color="#168A4A" /></View>}<Pressable onPress={onPress} style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}><MaterialIcons name="add" size={19} color="#FFF8ED" /><Text style={styles.addText}>Add</Text></Pressable></View></View>; }
 
+function CustomizeSheet({ item, business, modifiers, onClose }: { item: LiveItem | null; business: LiveMenu["organisation"]; modifiers: LiveModifier[]; onClose: () => void }) {
+  const { addLiveItem } = useKhanaStore();
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   if (!item) return null;
-
-  const toggleAddOn = (addOn: AddOn) => {
-    setAddOns((current) => current.some((selected) => selected.id === addOn.id) ? current.filter((selected) => selected.id !== addOn.id) : [...current, addOn]);
-  };
-  const total = item.price + addOns.reduce((sum, addOn) => sum + addOn.price, 0);
-
-  return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <Pressable style={styles.modalDismissArea} onPress={onClose} />
-        <View style={styles.sheet}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.sheetHeading}>
-            <View style={styles.sheetHeadingText}><Text style={styles.sheetTitle}>{item.name}</Text><Text style={styles.sheetSub}>Make it exactly how you like it</Text></View>
-            <Pressable onPress={onClose} style={({ pressed }) => [styles.closeButton, pressed && styles.iconPressed]}><MaterialIcons name="close" size={20} color="#064B2C" /></Pressable>
-          </View>
-          {item.spiceOptions ? <>
-            <Text style={styles.optionLabel}>SPICE LEVEL</Text>
-            <View style={styles.optionRow}>
-              {item.spiceOptions.map((option) => <Pressable key={option} onPress={() => setSpice(option)} style={({ pressed }) => [styles.option, spice === option && styles.optionSelected, pressed && styles.iconPressed]}><Text style={[styles.optionText, spice === option && styles.optionTextSelected]}>{option}</Text></Pressable>)}
-            </View>
-          </> : null}
-          {item.addOns?.length ? <>
-            <Text style={styles.optionLabel}>MAKE IT A MEAL</Text>
-            <View style={styles.addOnStack}>
-              {item.addOns.map((addOn) => {
-                const selected = addOns.some((active) => active.id === addOn.id);
-                return <Pressable key={addOn.id} onPress={() => toggleAddOn(addOn)} style={({ pressed }) => [styles.addOn, selected && styles.addOnSelected, pressed && styles.iconPressed]}><View style={[styles.checkbox, selected && styles.checkboxSelected]}>{selected ? <MaterialIcons name="check" size={14} color="#FFF8ED" /> : null}</View><Text style={styles.addOnName}>{addOn.name}</Text><Text style={styles.addOnPrice}>+ Rs. {addOn.price}</Text></Pressable>;
-              })}
-            </View>
-          </> : null}
-          <PrimaryButton label={`Add to cart · Rs. ${total.toLocaleString("en-PK")}`} onPress={() => { addItem(item, spice, addOns); onClose(); }} icon="add-shopping-cart" />
-        </View>
-      </View>
-    </Modal>
-  );
+  const toggle = (modifier: LiveModifier) => setSelectedIds((current) => current.includes(modifier.id) ? current.filter((id) => id !== modifier.id) : [...current, modifier.id]);
+  const selectedTotal = modifiers.filter((modifier) => selectedIds.includes(modifier.id)).reduce((sum, modifier) => sum + modifier.priceMinor, 0);
+  const missingRequired = modifiers.some((modifier) => modifier.isRequired && !selectedIds.includes(modifier.id));
+  return <Modal visible transparent animationType="slide" onRequestClose={onClose}><View style={styles.modalBackdrop}><Pressable onPress={onClose} style={styles.modalDismiss} /><View style={styles.sheet}><View style={styles.sheetHandle} /><View style={styles.sheetHeader}><View style={styles.sheetCopy}><Text style={styles.sheetTitle}>{item.name}</Text><Text style={styles.sheetSub}>Choose your available extras. The server confirms all selections and prices at checkout.</Text></View><Pressable onPress={onClose} style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}><MaterialIcons name="close" size={20} color="#064B2C" /></Pressable></View>{modifiers.length ? <><Text style={styles.optionHeading}>EXTRAS</Text>{modifiers.map((modifier) => { const selected = selectedIds.includes(modifier.id); return <Pressable key={modifier.id} onPress={() => toggle(modifier)} style={({ pressed }) => [styles.modifierOption, selected && styles.modifierOptionSelected, pressed && styles.pressed]}><View style={[styles.checkbox, selected && styles.checkboxSelected]}>{selected ? <MaterialIcons name="check" size={14} color="#FFFFFF" /> : null}</View><View style={styles.modifierOptionCopy}><Text style={styles.modifierName}>{modifier.name}{modifier.isRequired ? " · Required" : ""}</Text><Text style={styles.modifierPrice}>+ {formatMinor(modifier.priceMinor)}</Text></View></Pressable>; })}</> : <View style={styles.noExtras}><Text style={styles.noExtrasText}>No extras are currently available for this dish.</Text></View>}<PrimaryButton label={missingRequired ? "Select required options" : `Add to cart · ${formatMinor(item.priceMinor + selectedTotal)}`} onPress={() => { if (missingRequired) return; addLiveItem({ businessId: business.id, businessName: business.displayName, menuItemId: item.id, name: item.name, priceMinor: item.priceMinor, imageUrl: menuImageUrl(item.imageKey), modifiers, selectedModifierIds: selectedIds }); setSelectedIds([]); onClose(); }} icon="add-shopping-cart" /></View></View></Modal>;
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#FFF8ED" },
-  listContent: { paddingHorizontal: 16, paddingTop: 14 },
-  hero: { height: 230, borderRadius: 24, overflow: "hidden", backgroundColor: "#064B2C", marginBottom: 12 },
-  heroImage: { ...StyleSheet.absoluteFillObject, width: undefined, height: undefined },
-  heroOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(6,75,44,0.58)" },
-  openPill: { position: "absolute", top: 14, left: 14, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(255,255,255,0.94)", borderRadius: 99, paddingVertical: 6, paddingHorizontal: 9 },
-  openDot: { width: 7, height: 7, backgroundColor: "#168A4A", borderRadius: 4 },
-  openText: { color: "#064B2C", fontSize: 11, lineHeight: 14, fontWeight: "900" },
-  heroContent: { position: "absolute", left: 16, right: 16, bottom: 15 },
-  heroTitle: { color: "#FFFFFF", fontSize: 26, lineHeight: 31, fontWeight: "900", letterSpacing: -0.5 },
-  heroCuisine: { color: "#DFECE3", fontSize: 13, lineHeight: 17, fontWeight: "600", marginTop: 2 },
-  heroMeta: { flexDirection: "row", gap: 10, marginTop: 10 },
-  heroMetric: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 5, paddingHorizontal: 8, borderRadius: 9, backgroundColor: "rgba(0,0,0,0.2)" },
-  heroMetricText: { color: "#FFFFFF", fontSize: 11, lineHeight: 14, fontWeight: "800" },
-  deliveryNote: { minHeight: 50, borderRadius: 14, backgroundColor: "#FFF0E6", paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 23 },
-  deliveryNoteIcon: { width: 29, height: 29, borderRadius: 9, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  deliveryNoteText: { flex: 1, color: "#A63F00", fontSize: 12, lineHeight: 16, fontWeight: "800" },
-  menuHeading: { flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 12 },
-  menuTitle: { color: "#17251D", fontSize: 21, lineHeight: 26, fontWeight: "900" },
-  menuSub: { color: "#6C7A70", fontSize: 12, lineHeight: 16, fontWeight: "600" },
-  categoryPill: { alignSelf: "flex-start", backgroundColor: "#064B2C", borderRadius: 99, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 12 },
-  categoryPillText: { color: "#FFF8ED", fontSize: 12, lineHeight: 15, fontWeight: "900" },
-  menuCard: { minHeight: 142, borderRadius: 20, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E7E8E2", padding: 12, flexDirection: "row", gap: 10, marginBottom: 10 },
-  menuDetails: { flex: 1, paddingTop: 1 },
-  popularPill: { alignSelf: "flex-start", backgroundColor: "#E0F4E7", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3, marginBottom: 5 },
-  popularPillText: { color: "#168A4A", fontSize: 8, lineHeight: 10, letterSpacing: 0.6, fontWeight: "900" },
-  menuItemName: { color: "#17251D", fontSize: 15, lineHeight: 19, fontWeight: "900" },
-  menuItemDescription: { marginTop: 4, color: "#6C7A70", fontSize: 11, lineHeight: 15, fontWeight: "600" },
-  menuItemPrice: { color: "#064B2C", fontSize: 13, lineHeight: 17, fontWeight: "900", marginTop: 8 },
-  menuVisual: { width: 108, height: 118, position: "relative" },
-  menuImage: { width: "100%", height: "100%", borderRadius: 15, backgroundColor: "#E0F4E7" },
-  addButton: { position: "absolute", bottom: -4, left: 9, right: 9, height: 32, borderRadius: 10, backgroundColor: "#FF6B00", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2 },
-  addButtonText: { color: "#FFF8ED", fontSize: 11, lineHeight: 14, fontWeight: "900" },
-  footerSpace: { height: 78 },
-  modalBackdrop: { flex: 1, backgroundColor: "rgba(8,24,14,0.42)", justifyContent: "flex-end" },
-  modalDismissArea: { flex: 1 },
-  sheet: { backgroundColor: "#FFF8ED", paddingHorizontal: 20, paddingBottom: 31, paddingTop: 10, borderTopLeftRadius: 30, borderTopRightRadius: 30 },
-  sheetHandle: { width: 38, height: 4, backgroundColor: "#CCD7CF", borderRadius: 99, alignSelf: "center", marginBottom: 16 },
-  sheetHeading: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18 },
-  sheetHeadingText: { flex: 1, paddingRight: 16 },
-  sheetTitle: { color: "#17251D", fontSize: 21, lineHeight: 26, fontWeight: "900" },
-  sheetSub: { marginTop: 2, color: "#6C7A70", fontSize: 12, lineHeight: 16, fontWeight: "600" },
-  closeButton: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#E7E8E2" },
-  optionLabel: { color: "#6C7A70", fontSize: 10, lineHeight: 13, letterSpacing: 1, fontWeight: "900", marginBottom: 9 },
-  optionRow: { flexDirection: "row", gap: 7, marginBottom: 18 },
-  option: { flex: 1, minHeight: 38, borderRadius: 11, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E7E8E2", alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
-  optionSelected: { backgroundColor: "#E0F4E7", borderColor: "#168A4A" },
-  optionText: { color: "#6C7A70", fontSize: 10, lineHeight: 13, fontWeight: "800" },
-  optionTextSelected: { color: "#064B2C" },
-  addOnStack: { gap: 7, marginBottom: 21 },
-  addOn: { minHeight: 48, backgroundColor: "#FFFFFF", borderRadius: 13, borderWidth: 1, borderColor: "#E7E8E2", flexDirection: "row", alignItems: "center", paddingHorizontal: 11, gap: 9 },
-  addOnSelected: { borderColor: "#168A4A", backgroundColor: "#F2FBF5" },
-  checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: "#B6C4BB", alignItems: "center", justifyContent: "center" },
-  checkboxSelected: { borderColor: "#168A4A", backgroundColor: "#168A4A" },
-  addOnName: { flex: 1, color: "#17251D", fontSize: 13, lineHeight: 17, fontWeight: "800" },
-  addOnPrice: { color: "#064B2C", fontSize: 12, lineHeight: 15, fontWeight: "900" },
-  pressed: { transform: [{ scale: 0.975 }], opacity: 0.92 },
-  iconPressed: { opacity: 0.65 },
+  screen: { flex: 1, backgroundColor: "#FFF8ED" }, listContent: { paddingHorizontal: 16, paddingTop: 14 }, loading: { flex: 1, backgroundColor: "#FFF8ED", alignItems: "center", justifyContent: "center", gap: 10 }, loadingCopy: { color: "#627164", fontSize: 12, fontWeight: "800" }, access: { flex: 1, backgroundColor: "#FFF8ED", paddingHorizontal: 16 }, accessCenter: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 }, accessIcon: { width: 66, height: 66, borderRadius: 22, backgroundColor: "#E0F4E7", alignItems: "center", justifyContent: "center" }, accessTitle: { marginTop: 16, color: "#17251D", fontSize: 20, fontWeight: "900", textAlign: "center" }, accessCopy: { marginTop: 8, color: "#67766A", fontSize: 12, lineHeight: 18, fontWeight: "600", textAlign: "center" }, hero: { minHeight: 208, borderRadius: 24, backgroundColor: "#064B2C", padding: 18, overflow: "hidden" }, heroIcon: { width: 56, height: 56, borderRadius: 18, backgroundColor: "#168A4A", alignItems: "center", justifyContent: "center" }, openPill: { position: "absolute", right: 14, top: 14, borderRadius: 99, backgroundColor: "#E0F4E7", paddingHorizontal: 9, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 5 }, openDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#168A4A" }, openText: { color: "#17683A", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 }, heroTitle: { marginTop: 24, color: "#FFFFFF", fontSize: 25, lineHeight: 30, fontWeight: "900" }, heroCuisine: { marginTop: 4, color: "#D7E8DA", fontSize: 12, fontWeight: "800" }, heroDescription: { marginTop: 11, color: "#E5F1E7", fontSize: 11, lineHeight: 16, fontWeight: "600" }, deliveryNote: { marginTop: 12, minHeight: 51, borderRadius: 14, backgroundColor: "#FFF0E6", paddingHorizontal: 12, flexDirection: "row", gap: 8, alignItems: "center" }, deliveryText: { flex: 1, color: "#A14810", fontSize: 10, lineHeight: 14, fontWeight: "800" }, menuHeading: { marginTop: 22, marginBottom: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, menuTitle: { color: "#17251D", fontSize: 20, fontWeight: "900" }, menuSub: { marginTop: 3, color: "#6C7A70", fontSize: 10, fontWeight: "700" }, liveBadge: { flexDirection: "row", gap: 4, alignItems: "center", backgroundColor: "#E0F4E7", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5 }, liveBadgeText: { color: "#168A4A", fontSize: 9, fontWeight: "900" }, menuCard: { minHeight: 135, borderRadius: 20, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E1E9E0", padding: 11, flexDirection: "row", gap: 10, marginBottom: 10 }, menuDetails: { flex: 1, paddingTop: 3 }, menuItemName: { color: "#17251D", fontSize: 15, lineHeight: 19, fontWeight: "900" }, menuDescription: { marginTop: 4, color: "#6C7A70", fontSize: 10, lineHeight: 14, fontWeight: "600" }, menuPrice: { marginTop: 8, color: "#064B2C", fontSize: 13, fontWeight: "900" }, prepTime: { marginTop: 3, color: "#6A7A6E", fontSize: 8, fontWeight: "800" }, menuVisual: { width: 102, height: 111, position: "relative" }, menuImage: { width: "100%", height: "100%", borderRadius: 15, backgroundColor: "#E0F4E7" }, menuPlaceholder: { width: "100%", height: "100%", borderRadius: 15, backgroundColor: "#E0F4E7", alignItems: "center", justifyContent: "center" }, addButton: { position: "absolute", bottom: -4, left: 8, right: 8, height: 31, borderRadius: 10, backgroundColor: "#FF6B00", flexDirection: "row", gap: 2, alignItems: "center", justifyContent: "center" }, addText: { color: "#FFF8ED", fontSize: 10, fontWeight: "900" }, empty: { padding: 34, borderRadius: 20, alignItems: "center", gap: 8, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E1E9E0" }, emptyTitle: { color: "#17251D", fontSize: 15, fontWeight: "900" }, emptyCopy: { color: "#65746A", fontSize: 11, lineHeight: 16, textAlign: "center", fontWeight: "600" }, footerSpace: { height: 80 }, modalBackdrop: { flex: 1, backgroundColor: "rgba(8,24,14,0.42)", justifyContent: "flex-end" }, modalDismiss: { flex: 1 }, sheet: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 30, borderTopLeftRadius: 30, borderTopRightRadius: 30, backgroundColor: "#FFF8ED" }, sheetHandle: { width: 38, height: 4, borderRadius: 99, alignSelf: "center", backgroundColor: "#CBD8CD", marginBottom: 15 }, sheetHeader: { flexDirection: "row", gap: 10, alignItems: "flex-start", marginBottom: 17 }, sheetCopy: { flex: 1 }, sheetTitle: { color: "#17251D", fontSize: 20, fontWeight: "900" }, sheetSub: { marginTop: 3, color: "#6D7B71", fontSize: 10, lineHeight: 14, fontWeight: "700" }, closeButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF", borderRadius: 12, borderWidth: 1, borderColor: "#E1E9E0" }, optionHeading: { marginBottom: 8, color: "#6C7A70", fontSize: 9, letterSpacing: 1, fontWeight: "900" }, modifierOption: { minHeight: 47, borderRadius: 13, borderWidth: 1, borderColor: "#E1E9E0", backgroundColor: "#FFFFFF", paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 7 }, modifierOptionSelected: { backgroundColor: "#F3FBF5", borderColor: "#168A4A" }, checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: "#B5C3B8", alignItems: "center", justifyContent: "center" }, checkboxSelected: { backgroundColor: "#168A4A", borderColor: "#168A4A" }, modifierOptionCopy: { flex: 1, flexDirection: "row", justifyContent: "space-between", gap: 8, alignItems: "center" }, modifierName: { flex: 1, color: "#24352A", fontSize: 11, fontWeight: "800" }, modifierPrice: { color: "#064B2C", fontSize: 10, fontWeight: "900" }, noExtras: { marginBottom: 13, padding: 13, borderRadius: 13, backgroundColor: "#F1F6F0" }, noExtrasText: { color: "#65766A", fontSize: 10, fontWeight: "700" }, pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
 });

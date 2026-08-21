@@ -1,18 +1,21 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import { File } from "expo-file-system";
+import * as ImagePicker from "expo-image-picker";
 import * as Network from "expo-network";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 
 import { BusinessWorkspaceSkeleton } from "@/components/loading-skeleton";
 import { ScreenContainer } from "@/components/screen-container";
 import { SuccessToast, useSuccessToast } from "@/components/success-toast";
 import { enqueueMenuMutation, readMenuMutationQueue, retryMenuMutationQueue } from "@/lib/menu-mutation-queue";
+import { menuImageUrl } from "@/lib/menu-image";
 import { createTRPCClient, trpc } from "@/lib/trpc";
 import { fromMinorUnits, toMinorUnits } from "@/shared/catalog";
 
 type Category = { id: number; name: string; sortOrder: number; isActive: boolean };
-type Item = { id: number; categoryId: number; name: string; description: string | null; priceMinor: number; prepTimeMinutes: number; isAvailable: boolean };
+type Item = { id: number; categoryId: number; name: string; description: string | null; priceMinor: number; prepTimeMinutes: number; isAvailable: boolean; imageKey: string | null };
 type Modifier = { id: number; menuItemId: number; name: string; priceMinor: number; isRequired: boolean; isAvailable: boolean };
 
 export default function BusinessCatalogueScreen() {
@@ -44,6 +47,7 @@ export default function BusinessCatalogueScreen() {
     onSettled: () => trpcUtils.businessOperations.catalogue.invalidate(),
   });
   const archiveItem = trpc.businessOperations.archiveItem.useMutation({ onSuccess: () => { setSelectedItemId(null); resetItemForm(); void catalogue.refetch(); showSuccess("Dish archived from your live menu"); } });
+  const uploadItemImage = trpc.businessOperations.uploadItemImage.useMutation({ onSuccess: () => { void catalogue.refetch(); showSuccess("Dish photo uploaded securely"); } });
   const createModifier = trpc.businessOperations.createModifier.useMutation({ onSuccess: () => catalogue.refetch() });
   const updateModifier = trpc.businessOperations.updateModifier.useMutation({
     onMutate: async (input) => {
@@ -91,7 +95,7 @@ export default function BusinessCatalogueScreen() {
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? null;
   const selectedModifiers = useMemo(() => modifiers.filter((modifier) => modifier.menuItemId === selectedItemId), [modifiers, selectedItemId]);
   const selectedModifier = modifiers.find((modifier) => modifier.id === selectedModifierId) ?? null;
-  const busy = createCategory.isPending || updateCategory.isPending || archiveCategory.isPending || createItem.isPending || updateItem.isPending || archiveItem.isPending || createModifier.isPending || updateModifier.isPending || archiveModifier.isPending;
+  const busy = createCategory.isPending || updateCategory.isPending || archiveCategory.isPending || createItem.isPending || updateItem.isPending || archiveItem.isPending || uploadItemImage.isPending || createModifier.isPending || updateModifier.isPending || archiveModifier.isPending;
 
   useEffect(() => { if (!selectedCategoryId && categories[0]) setSelectedCategoryId(categories[0].id); }, [categories, selectedCategoryId]);
   useEffect(() => { if (selectedItem) { setItemName(selectedItem.name); setItemDescription(selectedItem.description ?? ""); setItemPrice(fromMinorUnits(selectedItem.priceMinor)); setItemPrep(String(selectedItem.prepTimeMinutes)); setItemAvailable(selectedItem.isAvailable); } }, [selectedItem]);
@@ -172,6 +176,20 @@ export default function BusinessCatalogueScreen() {
     }
   }
 
+  async function pickDishImage() {
+    try {
+      if (!selectedItemId) throw new Error("Save the dish before uploading its photo.");
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [4, 3], quality: 0.8, base64: true });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      const mimeType = asset.mimeType === "image/png" ? "image/png" : asset.mimeType === "image/webp" ? "image/webp" : "image/jpeg";
+      const dataBase64 = asset.base64 ?? await new File(asset.uri).base64();
+      await uploadItemImage.mutateAsync({ menuItemId: selectedItemId, mimeType, dataBase64 });
+    } catch (error) {
+      Alert.alert("Could not upload dish photo", error instanceof Error ? error.message : "Choose a JPEG, PNG, or WebP image smaller than 5 MB and try again.");
+    }
+  }
+
   function confirmArchive(kind: "category" | "dish" | "modifier", id: number) {
     const configuration = kind === "category"
       ? { title: "Archive category?", message: "Archive every dish in this category first. Archived categories are retained for audit and no longer appear to customers.", action: () => archiveCategory.mutateAsync({ categoryId: id }) }
@@ -200,7 +218,7 @@ export default function BusinessCatalogueScreen() {
     {categoryFormOpen ? <View style={styles.card}><View style={styles.cardHeading}><Text style={styles.cardTitle}>{editingCategoryId ? "Edit category" : "New category"}</Text><Pressable onPress={resetCategoryForm} style={styles.iconButton}><MaterialIcons name="close" size={18} color="#5D7062" /></Pressable></View><Field label="Category name" value={categoryName} onChangeText={setCategoryName} placeholder="e.g. Karahi, Burgers, Drinks" /><View style={styles.dual}><View style={styles.half}><Field label="Display order" value={categorySortOrder} onChangeText={setCategorySortOrder} placeholder="0" keyboardType="numeric" /></View><View style={styles.half}><Toggle label="Category active" value={categoryActive} onValueChange={setCategoryActive} compact /></View></View><Pressable disabled={busy} onPress={() => void saveCategory()} style={({ pressed }) => [styles.primaryAction, pressed && styles.pressed]}>{busy ? <ActivityIndicator color="#FFFFFF" size="small" /> : <><MaterialIcons name="save" size={17} color="#FFFFFF" /><Text style={styles.actionText}>Save category</Text></>}</Pressable></View> : null}
 
     {selectedCategory ? <View style={styles.card}><View style={styles.cardHeading}><View><Text style={styles.cardTitle}>{selectedItemId ? "Edit dish" : `Add dish to ${selectedCategory.name}`}</Text><Text style={styles.cardSubtitle}>{selectedCategory.isActive ? "Changes publish when your Business is live." : "This category is inactive; reactivate it before adding a dish."}</Text></View><View style={styles.headingActions}><Pressable onPress={() => openCategoryForm(selectedCategory)} style={styles.iconButton}><MaterialIcons name="edit" size={18} color="#064B2C" /></Pressable><Pressable onPress={() => confirmArchive("category", selectedCategory.id)} style={styles.iconButton}><MaterialIcons name="archive" size={18} color="#B73B28" /></Pressable></View></View>
-      <Field label="Dish name" value={itemName} onChangeText={setItemName} placeholder="e.g. Chicken Karahi" /><Field label="Customer description" value={itemDescription} onChangeText={setItemDescription} placeholder="Short customer-facing description" multiline /><View style={styles.dual}><View style={styles.half}><Field label="Price (PKR)" value={itemPrice} onChangeText={setItemPrice} placeholder="950" keyboardType="numeric" /></View><View style={styles.half}><Field label="Prep minutes" value={itemPrep} onChangeText={setItemPrep} placeholder="25" keyboardType="numeric" /></View></View><Toggle label="Available to customers" value={itemAvailable} onValueChange={setItemAvailable} /><Pressable disabled={busy} onPress={() => void saveItem()} style={({ pressed }) => [styles.primaryAction, pressed && styles.pressed]}>{busy ? <ActivityIndicator color="#FFFFFF" size="small" /> : <><MaterialIcons name="save" size={17} color="#FFFFFF" /><Text style={styles.actionText}>{selectedItemId ? "Save dish & price" : "Add dish to menu"}</Text></>}</Pressable>
+      <Field label="Dish name" value={itemName} onChangeText={setItemName} placeholder="e.g. Chicken Karahi" /><Field label="Customer description" value={itemDescription} onChangeText={setItemDescription} placeholder="Short customer-facing description" multiline /><View style={styles.dual}><View style={styles.half}><Field label="Price (PKR)" value={itemPrice} onChangeText={setItemPrice} placeholder="950" keyboardType="numeric" /></View><View style={styles.half}><Field label="Prep minutes" value={itemPrep} onChangeText={setItemPrep} placeholder="25" keyboardType="numeric" /></View></View><Toggle label="Available to customers" value={itemAvailable} onValueChange={setItemAvailable} /><Pressable disabled={busy} onPress={() => void saveItem()} style={({ pressed }) => [styles.primaryAction, pressed && styles.pressed]}>{busy ? <ActivityIndicator color="#FFFFFF" size="small" /> : <><MaterialIcons name="save" size={17} color="#FFFFFF" /><Text style={styles.actionText}>{selectedItemId ? "Save dish & price" : "Add dish to menu"}</Text></>}</Pressable>{selectedItemId ? <View style={styles.imageUploadCard}>{selectedItem?.imageKey ? <Image source={{ uri: menuImageUrl(selectedItem.imageKey) ?? undefined }} style={styles.uploadPreview} resizeMode="cover" /> : <View style={styles.uploadPlaceholder}><MaterialIcons name="image" size={22} color="#168A4A" /></View>}<View style={styles.uploadCopy}><Text style={styles.uploadTitle}>Dish photo</Text><Text style={styles.uploadDescription}>JPEG, PNG, or WebP. Stored only after your Business ownership is checked.</Text></View><Pressable disabled={uploadItemImage.isPending} onPress={() => void pickDishImage()} style={({ pressed }) => [styles.uploadButton, pressed && styles.pressed]}>{uploadItemImage.isPending ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={styles.uploadButtonText}>{selectedItem?.imageKey ? "Replace" : "Upload"}</Text>}</Pressable></View> : null}
       {selectedItemId ? <><View style={styles.itemToolbar}><Text style={styles.subsectionTitle}>Modifiers & extras</Text><Pressable onPress={() => confirmArchive("dish", selectedItemId)} style={({ pressed }) => [styles.archiveAction, pressed && styles.pressed]}><MaterialIcons name="archive" size={15} color="#B73B28" /><Text style={styles.archiveActionText}>Archive dish</Text></Pressable></View>{selectedModifiers.map((modifier) => <View key={modifier.id} style={[styles.modifierRow, selectedModifierId === modifier.id && styles.itemRowActive]}><Pressable onPress={() => setSelectedModifierId(modifier.id)} style={styles.modifierCopy}><Text style={styles.modifierName}>{modifier.name}</Text><Text style={styles.modifierMeta}>+ PKR {fromMinorUnits(modifier.priceMinor)} · {modifier.isRequired ? "Required" : "Optional"}</Text></Pressable><Switch value={modifier.isAvailable} onValueChange={(isAvailable) => updateModifier.mutate({ modifierId: modifier.id, name: modifier.name, priceMinor: modifier.priceMinor, isRequired: modifier.isRequired, isAvailable })} trackColor={{ false: "#D9DFD8", true: "#A7D8B8" }} thumbColor={modifier.isAvailable ? "#168A4A" : "#FFFFFF"} /><Pressable onPress={() => confirmArchive("modifier", modifier.id)} style={styles.rowArchive}><MaterialIcons name="archive" size={17} color="#B73B28" /></Pressable></View>)}<Field label={selectedModifierId ? "Edit modifier" : "New modifier"} value={modifierName} onChangeText={setModifierName} placeholder="e.g. Extra cheese" /><View style={styles.dual}><View style={styles.half}><Field label="Extra price (PKR)" value={modifierPrice} onChangeText={setModifierPrice} placeholder="100" keyboardType="numeric" /></View><View style={styles.half}><Toggle label="Required choice" value={modifierRequired} onValueChange={setModifierRequired} compact /></View></View><Pressable disabled={busy} onPress={() => void saveModifier()} style={({ pressed }) => [styles.outlineAction, pressed && styles.pressed]}><MaterialIcons name={selectedModifierId ? "save" : "add-circle-outline"} size={17} color="#064B2C" /><Text style={styles.outlineActionText}>{selectedModifierId ? "Save modifier" : "Add modifier"}</Text></Pressable></> : null}
     </View> : <View style={styles.empty}><MaterialIcons name="restaurant-menu" size={30} color="#6A7B6D" /><Text style={styles.emptyText}>Create your first category, then add dishes and PKR prices.</Text></View>}
 
@@ -268,6 +286,14 @@ const styles = StyleSheet.create({
   modifierName: { color: "#29382E", fontSize: 11, fontWeight: "900" },
   modifierMeta: { marginTop: 2, color: "#6D7D71", fontSize: 9, fontWeight: "700" },
   rowArchive: { width: 29, height: 29, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: "#FFF0ED" },
+  imageUploadCard: { marginTop: 12, minHeight: 76, padding: 9, borderRadius: 14, backgroundColor: "#F4F8F3", borderWidth: 1, borderColor: "#D7E4D7", flexDirection: "row", alignItems: "center", gap: 9 },
+  uploadPreview: { width: 58, height: 58, borderRadius: 11, backgroundColor: "#E0F4E7" },
+  uploadPlaceholder: { width: 58, height: 58, borderRadius: 11, backgroundColor: "#E0F4E7", justifyContent: "center", alignItems: "center" },
+  uploadCopy: { flex: 1 },
+  uploadTitle: { color: "#1D3524", fontSize: 11, fontWeight: "900" },
+  uploadDescription: { marginTop: 3, color: "#66786B", fontSize: 8, lineHeight: 12, fontWeight: "700" },
+  uploadButton: { minHeight: 34, paddingHorizontal: 9, borderRadius: 10, backgroundColor: "#064B2C", justifyContent: "center", alignItems: "center" },
+  uploadButtonText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
   outlineAction: { marginTop: 12, minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: "#BFD7C1", backgroundColor: "#F2F8F1", flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6 },
   outlineActionText: { color: "#064B2C", fontSize: 10, fontWeight: "900" },
   listHeader: { marginTop: 18, marginBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

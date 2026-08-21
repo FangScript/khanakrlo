@@ -33,6 +33,7 @@ import { getDb } from "./db";
 type ApplicationReviewStatus = "changes_required" | "approved" | "suspended";
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
 const ALLOWED_DOCUMENT_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const MAX_MENU_IMAGE_BYTES = 5 * 1024 * 1024;
 
 async function requireDb() {
   const db = await getDb();
@@ -43,6 +44,17 @@ async function requireDb() {
 function parseJson<T>(value: string | null, fallback: T): T {
   if (!value) return fallback;
   try { return JSON.parse(value) as T; } catch { return fallback; }
+}
+
+function decodeMenuImage(dataBase64: string, mimeType: "image/jpeg" | "image/png" | "image/webp") {
+  const binary = Buffer.from(dataBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
+  if (!binary.length || binary.length > MAX_MENU_IMAGE_BYTES) throw new Error("Dish image must be a valid JPEG, PNG, or WebP smaller than 5 MB.");
+  const isJpeg = binary.length >= 3 && binary[0] === 0xff && binary[1] === 0xd8 && binary[2] === 0xff;
+  const isPng = binary.length >= 8 && binary.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const isWebp = binary.length >= 12 && binary.subarray(0, 4).toString("ascii") === "RIFF" && binary.subarray(8, 12).toString("ascii") === "WEBP";
+  const detectedMime = isJpeg ? "image/jpeg" : isPng ? "image/png" : isWebp ? "image/webp" : null;
+  if (!detectedMime || detectedMime !== mimeType) throw new Error("Dish image content does not match its declared image type.");
+  return { binary, extension: detectedMime === "image/jpeg" ? "jpg" : detectedMime === "image/png" ? "png" : "webp" };
 }
 
 function normaliseDraft(draft: BusinessApplicationDraft): BusinessApplicationDraft {
@@ -345,6 +357,21 @@ export async function archiveCatalogueItem(userId: number, input: { itemId: numb
   return { archivedItemId: item.id };
 }
 
+export async function uploadCatalogueItemImage(userId: number, input: { menuItemId: number; mimeType: "image/jpeg" | "image/png" | "image/webp"; dataBase64: string }) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const catalogue = await catalogForContext(context);
+  const item = catalogue.items.find((candidate) => candidate.id === input.menuItemId);
+  if (!item) throw new Error("This menu item is outside your Business workspace.");
+  const image = decodeMenuImage(input.dataBase64, input.mimeType);
+  const storage = await storagePut(`business-menu/${context.organisation.id}/${item.id}/${crypto.randomUUID()}.${image.extension}`, image.binary, input.mimeType);
+  await context.db.transaction(async (tx) => {
+    await tx.update(menuItems).set({ imageKey: storage.key, updatedAt: new Date() }).where(eq(menuItems.id, item.id));
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "menu_item", entityId: String(item.id), action: "menu_item_image_updated", previousValue: JSON.stringify({ imageKey: item.imageKey }), nextValue: JSON.stringify({ imageKey: storage.key }) });
+    await writeCatalogueOutbox(tx, { eventType: "catalogue.item_image_updated", aggregateType: "menu_item", aggregateId: item.id, actorUserId: userId, payload: { imageKey: storage.key } });
+  });
+  return { imageKey: storage.key, imageUrl: storage.url };
+}
+
 export async function createCatalogueModifier(userId: number, input: { menuItemId: number; name: string; priceMinor: number; isRequired: boolean }) {
   const context = await getOwnedLiveBusinessContext(userId);
   const catalogue = await catalogForContext(context);
@@ -411,4 +438,25 @@ export async function getLiveBusinessDiscovery(filter?: "restaurant" | "cloud_ki
     return { id: organisation.id, businessType: organisation.businessType, displayName: organisation.displayName, city: organisation.city, cuisine: organisation.businessType === "restaurant" ? outlet?.cuisine ?? "Mixed" : brands.map((brand) => brand.cuisine).filter(Boolean).join(" • ") || "Cloud Kitchen", description: outlet?.description ?? brands[0]?.description ?? null, itemCount: items.length, isOpen: organisation.status === "live" && !(outlet?.isPaused || kitchen?.isPaused), deliveryLabel: organisation.businessType === "restaurant" ? "Restaurant delivery" : `${brands.length} kitchen brand${brands.length === 1 ? "" : "s"}` };
   }));
   return records.sort((a, b) => a.displayName.localeCompare(b.displayName));
+}
+
+export async function getLiveBusinessMenu(organisationId: number) {
+  const db = await requireDb();
+  const organisation = (await db.select().from(businessOrganisations).where(and(eq(businessOrganisations.id, organisationId), eq(businessOrganisations.status, "live"))).limit(1))[0];
+  if (!organisation) throw new Error("Live Business menu not found.");
+  const [outlets, kitchens] = await Promise.all([
+    db.select().from(businessOutlets).where(eq(businessOutlets.organisationId, organisation.id)),
+    db.select().from(cloudKitchens).where(eq(cloudKitchens.organisationId, organisation.id)),
+  ]);
+  const outlet = outlets.find((candidate) => !candidate.isPaused && candidate.status !== "suspended") ?? null;
+  const kitchen = kitchens.find((candidate) => !candidate.isPaused && candidate.status !== "suspended") ?? null;
+  if (!outlet && !kitchen) throw new Error("This Business is not currently accepting orders.");
+  const brands = kitchen ? (await db.select().from(kitchenBrands).where(eq(kitchenBrands.cloudKitchenId, kitchen.id))).filter((brand) => brand.isActive) : [];
+  const allCategories = await db.select().from(menuCategories);
+  const categories = allCategories.filter((category) => !category.archivedAt && category.isActive && ((outlet && category.outletId === outlet.id) || brands.some((brand) => category.kitchenBrandId === brand.id))).sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
+  const categoryIds = new Set(categories.map((category) => category.id));
+  const items = (await db.select().from(menuItems)).filter((item) => categoryIds.has(item.categoryId) && item.isAvailable && !item.archivedAt).sort((left, right) => left.name.localeCompare(right.name));
+  const itemIds = new Set(items.map((item) => item.id));
+  const modifiers = (await db.select().from(menuModifiers)).filter((modifier) => itemIds.has(modifier.menuItemId) && modifier.isAvailable && !modifier.archivedAt);
+  return { organisation: { id: organisation.id, displayName: organisation.displayName, city: organisation.city, businessType: organisation.businessType, description: outlet?.description ?? brands[0]?.description ?? null, cuisine: outlet?.cuisine ?? (brands.map((brand) => brand.cuisine).join(" • ") || "Mixed"), deliveryFeeMinor: (await db.select().from(serviceZones).where(eq(serviceZones.organisationId, organisation.id))).find((zone) => zone.isActive)?.deliveryFeeMinor ?? 0 }, categories, items, modifiers };
 }

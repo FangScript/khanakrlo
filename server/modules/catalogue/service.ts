@@ -9,6 +9,7 @@ export const catalogueService = {
   createItem: (userId: number, input: Parameters<typeof legacyBusiness.createCatalogueItem>[1]) => legacyBusiness.createCatalogueItem(userId, input),
   updateItem: (userId: number, input: Parameters<typeof legacyBusiness.updateCatalogueItem>[1]) => legacyBusiness.updateCatalogueItem(userId, input),
   archiveItem: (userId: number, input: Parameters<typeof legacyBusiness.archiveCatalogueItem>[1]) => legacyBusiness.archiveCatalogueItem(userId, input),
+  uploadItemImage: (userId: number, input: Parameters<typeof legacyBusiness.uploadCatalogueItemImage>[1]) => legacyBusiness.uploadCatalogueItemImage(userId, input),
   createModifier: (userId: number, input: Parameters<typeof legacyBusiness.createCatalogueModifier>[1]) => legacyBusiness.createCatalogueModifier(userId, input),
   updateModifier: (userId: number, input: Parameters<typeof legacyBusiness.updateCatalogueModifier>[1]) => legacyBusiness.updateCatalogueModifier(userId, input),
   archiveModifier: (userId: number, input: Parameters<typeof legacyBusiness.archiveCatalogueModifier>[1]) => legacyBusiness.archiveCatalogueModifier(userId, input),
