@@ -249,6 +249,28 @@ export const orderStatusHistory = mysqlTable("order_status_history", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [index("order_status_history_order_index").on(table.orderId, table.createdAt)]);
 
+/** One authoritative manual-dispatch assignment per order. Assignment is immutable for customer audit; reassignment is deliberately deferred. */
+export const riderAssignments = mysqlTable("rider_assignments", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  riderUserId: int("riderUserId").notNull(),
+  assignedByUserId: int("assignedByUserId").notNull(),
+  assignedAt: timestamp("assignedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [uniqueIndex("rider_assignments_order_unique").on(table.orderId), index("rider_assignments_rider_status_index").on(table.riderUserId, table.assignedAt)]);
+
+/** Append-only, foreground rider position updates; only the freshest active-delivery point is shown to a customer. */
+export const riderLocationUpdates = mysqlTable("rider_location_updates", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  riderUserId: int("riderUserId").notNull(),
+  latitudeE6: int("latitudeE6").notNull(),
+  longitudeE6: int("longitudeE6").notNull(),
+  accuracyMeters: int("accuracyMeters"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("rider_location_updates_order_created_index").on(table.orderId, table.createdAt), index("rider_location_updates_rider_created_index").on(table.riderUserId, table.createdAt)]);
+
 export const businessDocuments = mysqlTable("business_documents", {
   id: int("id").autoincrement().primaryKey(), applicationId: int("applicationId").notNull(), organisationId: int("organisationId"), uploadedByUserId: int("uploadedByUserId").notNull(), documentType: mysqlEnum("documentType", BUSINESS_DOCUMENT_TYPES).notNull(), status: mysqlEnum("status", BUSINESS_DOCUMENT_STATUSES).default("uploaded").notNull(), storageKey: varchar("storageKey", { length: 500 }).notNull(), originalName: varchar("originalName", { length: 255 }).notNull(), mimeType: varchar("mimeType", { length: 120 }).notNull(), sizeBytes: int("sizeBytes").notNull(), reviewerNote: varchar("reviewerNote", { length: 1000 }), reviewedByUserId: int("reviewedByUserId"), reviewedAt: timestamp("reviewedAt"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [index("business_documents_application_index").on(table.applicationId, table.documentType), index("business_documents_reviewer_index").on(table.reviewedByUserId)]);

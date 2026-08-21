@@ -93,7 +93,7 @@ const config: ExpoConfig = {
     [
       "expo-location",
       {
-        "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to pin delivery addresses and verify Restaurant service zones."
+        "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to pin delivery addresses, verify Restaurant service zones, and share a Rider location during an active delivery."
       }
     ],
     [

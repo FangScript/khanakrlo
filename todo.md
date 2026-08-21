@@ -88,3 +88,5 @@
 - [x] Add secure approved-Business dish-image upload and responsive image delivery in customer menus.
 - [x] Build a persisted customer address book with labelled, geocoded, selectable default delivery addresses.
 - [x] Add server-side Business service-zone validation and transparent delivery-time estimates to checkout.
+- [x] Build production Rider assignment from ready-for-pickup Restaurant orders with authoritative role checks.
+- [x] Add Rider foreground location sharing and customer order-tracking display with location freshness safeguards.

@@ -1,6 +1,7 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 
 import {
+  accountProfiles,
   auditEvents,
   businessOrganisations,
   businessOutlets,
@@ -16,6 +17,8 @@ import {
   orderItems,
   orders,
   orderStatusHistory,
+  riderAssignments,
+  riderLocationUpdates,
   serviceZones,
   workspaceMemberships,
 } from "../drizzle/schema";
@@ -129,14 +132,25 @@ async function ownedBusinessOrganisationId(db: any, userId: number) {
   return organisation.id;
 }
 
+async function requireActiveRider(db: any, userId: number) {
+  const membership = (await db.select().from(workspaceMemberships).where(and(eq(workspaceMemberships.userId, userId), eq(workspaceMemberships.workspaceType, "rider"), eq(workspaceMemberships.status, "active"))).limit(1))[0];
+  if (!membership) throw new DomainError("FORBIDDEN", "An approved active Rider workspace is required.");
+  return membership;
+}
+
 async function hydrateOrder(db: any, order: typeof orders.$inferSelect) {
   const lines = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
   const lineIds = lines.map((line: typeof orderItems.$inferSelect) => line.id);
-  const [modifiers, history] = await Promise.all([
+  const [modifiers, history, assignmentRows] = await Promise.all([
     lineIds.length ? db.select().from(orderItemModifiers).where(inArray(orderItemModifiers.orderItemId, lineIds)) : [],
     db.select().from(orderStatusHistory).where(eq(orderStatusHistory.orderId, order.id)),
+    db.select().from(riderAssignments).where(eq(riderAssignments.orderId, order.id)).limit(1),
   ]);
-  return { ...order, lines: lines.map((line: typeof orderItems.$inferSelect) => ({ ...line, modifiers: modifiers.filter((modifier: typeof orderItemModifiers.$inferSelect) => modifier.orderItemId === line.id) })), history };
+  const assignment = assignmentRows[0] ?? null;
+  const profile = assignment ? (await db.select().from(accountProfiles).where(eq(accountProfiles.userId, assignment.riderUserId)).limit(1))[0] ?? null : null;
+  const latest = assignment && (order.status === "assigned" || order.status === "picked_up") ? (await db.select().from(riderLocationUpdates).where(and(eq(riderLocationUpdates.orderId, order.id), eq(riderLocationUpdates.riderUserId, assignment.riderUserId))).orderBy(desc(riderLocationUpdates.createdAt)).limit(1))[0] ?? null : null;
+  const freshnessSeconds = latest ? Math.max(0, Math.floor((Date.now() - latest.createdAt.getTime()) / 1_000)) : null;
+  return { ...order, lines: lines.map((line: typeof orderItems.$inferSelect) => ({ ...line, modifiers: modifiers.filter((modifier: typeof orderItemModifiers.$inferSelect) => modifier.orderItemId === line.id) })), history, rider: assignment ? { riderUserId: assignment.riderUserId, displayName: profile?.givenName ?? "Your Rider", assignedAt: assignment.assignedAt, location: latest ? { latitudeE6: latest.latitudeE6, longitudeE6: latest.longitudeE6, accuracyMeters: latest.accuracyMeters, updatedAt: latest.createdAt, freshnessSeconds, isFresh: freshnessSeconds !== null && freshnessSeconds <= 90 } : null } : null };
 }
 
 export async function quoteOrder(_userId: number, input: OrderQuoteInput) {
@@ -180,8 +194,11 @@ export async function getOrderForActor(userId: number, orderId: number) {
   const order = (await db.select().from(orders).where(eq(orders.id, orderId)).limit(1))[0];
   if (!order) throw new DomainError("NOT_FOUND", "Order not found.");
   if (order.customerUserId !== userId) {
-    const organisationId = await ownedBusinessOrganisationId(db, userId);
-    if (order.organisationId !== organisationId) throw new DomainError("FORBIDDEN", "This order is outside your Business workspace.");
+    const assignment = (await db.select().from(riderAssignments).where(and(eq(riderAssignments.orderId, order.id), eq(riderAssignments.riderUserId, userId))).limit(1))[0];
+    if (!assignment) {
+      const organisationId = await ownedBusinessOrganisationId(db, userId);
+      if (order.organisationId !== organisationId) throw new DomainError("FORBIDDEN", "This order is outside your Business workspace.");
+    }
   }
   return hydrateOrder(db, order);
 }
@@ -191,6 +208,82 @@ export async function listBusinessOrders(userId: number) {
   const organisationId = await ownedBusinessOrganisationId(db, userId);
   const rows = await db.select().from(orders).where(eq(orders.organisationId, organisationId));
   return Promise.all(rows.sort((left, right) => right.placedAt.getTime() - left.placedAt.getTime()).map((order) => hydrateOrder(db, order)));
+}
+
+export async function listAvailableRiders(userId: number) {
+  const db = await requireDb();
+  await ownedBusinessOrganisationId(db, userId);
+  const memberships = await db.select().from(workspaceMemberships).where(and(eq(workspaceMemberships.workspaceType, "rider"), eq(workspaceMemberships.status, "active")));
+  const riderIds = memberships.map((membership: typeof workspaceMemberships.$inferSelect) => membership.userId);
+  if (!riderIds.length) return [];
+  const profiles = await db.select().from(accountProfiles).where(inArray(accountProfiles.userId, riderIds));
+  return riderIds.map((riderUserId: number) => ({ riderUserId, displayName: profiles.find((profile: typeof accountProfiles.$inferSelect) => profile.userId === riderUserId)?.givenName ?? `Rider ${riderUserId}` }));
+}
+
+export async function assignRiderToOrder(userId: number, input: { orderId: number; riderUserId: number }) {
+  const db = await requireDb();
+  const organisationId = await ownedBusinessOrganisationId(db, userId);
+  return db.transaction(async (tx) => {
+    const order = (await tx.select().from(orders).where(eq(orders.id, input.orderId)).limit(1))[0];
+    if (!order) throw new DomainError("NOT_FOUND", "Order not found.");
+    if (order.organisationId !== organisationId) throw new DomainError("FORBIDDEN", "This order is outside your Business workspace.");
+    if (order.status !== "ready_for_pickup") throw new DomainError("CONFLICT", "Only ready-for-pickup orders can be assigned to a Rider.");
+    const rider = (await tx.select().from(workspaceMemberships).where(and(eq(workspaceMemberships.userId, input.riderUserId), eq(workspaceMemberships.workspaceType, "rider"), eq(workspaceMemberships.status, "active"))).limit(1))[0];
+    if (!rider) throw new DomainError("VALIDATION", "Choose an approved active Rider.");
+    const existing = (await tx.select().from(riderAssignments).where(eq(riderAssignments.orderId, order.id)).limit(1))[0];
+    if (existing) throw new DomainError("CONFLICT", "This order has already been assigned.");
+    const now = new Date();
+    await tx.insert(riderAssignments).values({ orderId: order.id, riderUserId: input.riderUserId, assignedByUserId: userId, assignedAt: now });
+    await tx.update(orders).set({ status: "assigned", updatedAt: now }).where(eq(orders.id, order.id));
+    await tx.insert(orderStatusHistory).values({ orderId: order.id, fromStatus: "ready_for_pickup", toStatus: "assigned", actorUserId: userId, note: "Rider assigned by Restaurant dispatch" });
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_assignment", entityId: String(order.id), action: "rider_assigned", nextValue: JSON.stringify({ riderUserId: input.riderUserId, orderId: order.id }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "orders", eventType: "order.assigned", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, organisationId, riderUserId: input.riderUserId }), deduplicationKey: eventKey("order.assigned", order.id) });
+    return hydrateOrder(tx, { ...order, status: "assigned", updatedAt: now });
+  });
+}
+
+export async function listRiderOrders(userId: number) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  const assignments = await db.select().from(riderAssignments).where(eq(riderAssignments.riderUserId, userId));
+  const orderIds = assignments.map((assignment: typeof riderAssignments.$inferSelect) => assignment.orderId);
+  if (!orderIds.length) return [];
+  const rows = await db.select().from(orders).where(inArray(orders.id, orderIds));
+  return Promise.all(rows.sort((left: typeof orders.$inferSelect, right: typeof orders.$inferSelect) => right.placedAt.getTime() - left.placedAt.getTime()).map((order: typeof orders.$inferSelect) => hydrateOrder(db, order)));
+}
+
+export async function transitionRiderOrder(userId: number, input: { orderId: number; toStatus: "picked_up" | "delivered"; note?: string }) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  return db.transaction(async (tx) => {
+    const order = (await tx.select().from(orders).where(eq(orders.id, input.orderId)).limit(1))[0];
+    const assignment = (await tx.select().from(riderAssignments).where(eq(riderAssignments.orderId, input.orderId)).limit(1))[0];
+    if (!order || !assignment) throw new DomainError("NOT_FOUND", "Assigned delivery not found.");
+    if (assignment.riderUserId !== userId) throw new DomainError("FORBIDDEN", "This delivery is assigned to another Rider.");
+    if (!canTransitionOrder(order.status, input.toStatus)) throw new DomainError("CONFLICT", `Delivery cannot move from ${order.status} to ${input.toStatus}.`);
+    const now = new Date();
+    await tx.update(orders).set({ status: input.toStatus, updatedAt: now, ...(input.toStatus === "delivered" ? { paymentStatus: "paid" } : {}) }).where(eq(orders.id, order.id));
+    await tx.insert(orderStatusHistory).values({ orderId: order.id, fromStatus: order.status, toStatus: input.toStatus, actorUserId: userId, note: input.note ?? null });
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "order", entityId: String(order.id), action: `rider_order_${input.toStatus}`, previousValue: JSON.stringify({ status: order.status }), nextValue: JSON.stringify({ status: input.toStatus, note: input.note ?? null }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "orders", eventType: `order.${input.toStatus}`, aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, riderUserId: userId, fromStatus: order.status, toStatus: input.toStatus }), deduplicationKey: eventKey(`order.${input.toStatus}`, order.id) });
+    return hydrateOrder(tx, { ...order, status: input.toStatus, paymentStatus: input.toStatus === "delivered" ? "paid" : order.paymentStatus, updatedAt: now });
+  });
+}
+
+export async function updateRiderLocation(userId: number, input: { orderId: number; latitudeE6: number; longitudeE6: number; accuracyMeters?: number }) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  return db.transaction(async (tx) => {
+    const order = (await tx.select().from(orders).where(eq(orders.id, input.orderId)).limit(1))[0];
+    const assignment = (await tx.select().from(riderAssignments).where(eq(riderAssignments.orderId, input.orderId)).limit(1))[0];
+    if (!order || !assignment) throw new DomainError("NOT_FOUND", "Assigned delivery not found.");
+    if (assignment.riderUserId !== userId) throw new DomainError("FORBIDDEN", "This delivery is assigned to another Rider.");
+    if (order.status !== "assigned" && order.status !== "picked_up") throw new DomainError("CONFLICT", "Location sharing is available only while travelling on an active delivery.");
+    const now = new Date();
+    await tx.insert(riderLocationUpdates).values({ orderId: order.id, riderUserId: userId, latitudeE6: input.latitudeE6, longitudeE6: input.longitudeE6, accuracyMeters: input.accuracyMeters ?? null, createdAt: now });
+    await tx.insert(domainOutboxEvents).values({ domain: "delivery", eventType: "rider.location_updated", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, riderUserId: userId, latitudeE6: input.latitudeE6, longitudeE6: input.longitudeE6, accuracyMeters: input.accuracyMeters ?? null, receivedAt: now.toISOString() }), deduplicationKey: eventKey("rider.location_updated", order.id) });
+    return { updatedAt: now };
+  });
 }
 
 export async function transitionBusinessOrder(userId: number, input: { orderId: number; toStatus: OrderStatus; note?: string }) {

@@ -10,7 +10,7 @@ import { discoveryService } from "./modules/discovery/service";
 import { callDomain } from "./modules/gateway/domain-error";
 import { identityWorkspaceService } from "./modules/identity-workspace/service";
 import { orderService } from "./modules/orders/service";
-import { orderByIdInput, orderPlaceInput, orderQuoteInput, orderTransitionInput } from "./modules/contracts/orders";
+import { orderByIdInput, orderPlaceInput, orderQuoteInput, orderTransitionInput, riderAssignmentInput, riderLocationUpdateInput, riderOrderTransitionInput } from "./modules/contracts/orders";
 import { addressService } from "./modules/addresses/service";
 import { customerAddressCreateInput, customerAddressIdInput, customerAddressUpdateInput } from "./modules/contracts/addresses";
 
@@ -82,6 +82,11 @@ export const appRouter = router({
     byId: protectedProcedure.input(orderByIdInput).query(({ ctx, input }) => callDomain(() => orderService.byId(ctx.user.id, input.orderId))),
     businessQueue: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.businessQueue(ctx.user.id))),
     transition: protectedProcedure.input(orderTransitionInput).mutation(({ ctx, input }) => callDomain(() => orderService.transition(ctx.user.id, input))),
+    availableRiders: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.availableRiders(ctx.user.id))),
+    assignRider: protectedProcedure.input(riderAssignmentInput).mutation(({ ctx, input }) => callDomain(() => orderService.assignRider(ctx.user.id, input))),
+    riderQueue: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderQueue(ctx.user.id))),
+    riderTransition: protectedProcedure.input(riderOrderTransitionInput).mutation(({ ctx, input }) => callDomain(() => orderService.riderTransition(ctx.user.id, input))),
+    updateRiderLocation: protectedProcedure.input(riderLocationUpdateInput).mutation(({ ctx, input }) => callDomain(() => orderService.updateRiderLocation(ctx.user.id, input))),
   }),
   addresses: router({
     mine: protectedProcedure.query(({ ctx }) => callDomain(() => addressService.list(ctx.user.id))),
