@@ -1,0 +1,29 @@
+import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import * as Linking from "expo-linking";
+import { router } from "expo-router";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+
+import { ScreenContainer } from "@/components/screen-container";
+
+export default function RiderSupportScreen() {
+  const openEmergency = async () => {
+    const url = "tel:1122";
+    if (await Linking.canOpenURL(url)) await Linking.openURL(url);
+    else Alert.alert("Emergency help", "Call 1122 from your phone for emergency services.");
+  };
+  return <ScreenContainer edges={["top", "bottom", "left", "right"]}>
+    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <View style={styles.header}><Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={styles.back}><MaterialIcons name="arrow-back" size={21} color="#064B2C" /></Pressable><Text style={styles.title}>Safety & support</Text><View style={{ width: 40 }} /></View>
+      <View style={styles.emergency}><View style={styles.emergencyIcon}><MaterialIcons name="emergency" size={23} color="#FFFFFF" /></View><View style={styles.copy}><Text style={styles.emergencyTitle}>Need urgent help?</Text><Text style={styles.emergencyText}>For an immediate safety emergency, contact local emergency services first.</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Call emergency services" onPress={openEmergency} style={({ pressed }) => [styles.callButton, pressed && styles.pressed]}><Text style={styles.callText}>Call 1122</Text></Pressable></View>
+      <Text style={styles.sectionTitle}>Rider support</Text>
+      <View style={styles.card}><SupportRow icon="support-agent" title="Contact rider support" detail="Get help with an order, customer, or restaurant" onPress={() => Alert.alert("Rider support", "Support request started. Please include the order number and a short description.")} /><SupportRow icon="report-problem" title="Report an issue" detail="Flag a route, payment, or delivery problem" onPress={() => Alert.alert("Report an issue", "Choose the delivery from your dashboard and share the issue with operations.")} /><SupportRow icon="menu-book" title="Rider safety guide" detail="Practical guidance for safe deliveries" onPress={() => Alert.alert("Safety guide", "Stay visible, use a helmet, never use your phone while moving, and meet customers in a safe public area when possible.")} /></View>
+      <View style={styles.policy}><MaterialIcons name="shield" size={20} color="#17683A" /><View style={styles.copy}><Text style={styles.policyTitle}>Safety is part of every delivery</Text><Text style={styles.policyText}>You can decline unsafe work and contact operations without affecting the delivery workflow.</Text></View></View>
+    </ScrollView>
+  </ScreenContainer>;
+}
+
+function SupportRow({ icon, title, detail, onPress }: { icon: "support-agent" | "report-problem" | "menu-book"; title: string; detail: string; onPress: () => void }) { return <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={onPress} style={({ pressed }) => [styles.row, pressed && styles.pressed]}><View style={styles.rowIcon}><MaterialIcons name={icon} size={20} color="#064B2C" /></View><View style={styles.copy}><Text style={styles.rowTitle}>{title}</Text><Text style={styles.rowDetail}>{detail}</Text></View><MaterialIcons name="chevron-right" size={20} color="#91A097" /></Pressable>; }
+
+const styles = StyleSheet.create({
+  content: { paddingBottom: 34, backgroundColor: "#F4F6F3" }, header: { height: 74, paddingHorizontal: 16, backgroundColor: "#FFFFFF", borderBottomWidth: 1, borderBottomColor: "#E1E6E0", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, back: { width: 40, height: 40, borderRadius: 13, backgroundColor: "#EAF3EC", alignItems: "center", justifyContent: "center" }, title: { color: "#17251D", fontSize: 17, lineHeight: 21, fontWeight: "900" }, emergency: { margin: 16, padding: 14, borderRadius: 19, backgroundColor: "#FFF0ED", borderWidth: 1, borderColor: "#F0C7BF", flexDirection: "row", alignItems: "center", gap: 9 }, emergencyIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: "#D5432F", alignItems: "center", justifyContent: "center" }, copy: { flex: 1 }, emergencyTitle: { color: "#9C3325", fontSize: 12, lineHeight: 16, fontWeight: "900" }, emergencyText: { marginTop: 3, color: "#9C5A4D", fontSize: 10, lineHeight: 14, fontWeight: "600" }, callButton: { paddingHorizontal: 9, height: 34, borderRadius: 10, backgroundColor: "#D5432F", alignItems: "center", justifyContent: "center" }, callText: { color: "#FFFFFF", fontSize: 10, lineHeight: 13, fontWeight: "900" }, sectionTitle: { marginHorizontal: 16, marginBottom: 9, color: "#17251D", fontSize: 14, lineHeight: 18, fontWeight: "900" }, card: { marginHorizontal: 16, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, borderColor: "#E1E6E0", backgroundColor: "#FFFFFF" }, row: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: "#EDF0EC" }, rowIcon: { width: 37, height: 37, borderRadius: 12, backgroundColor: "#EAF3EC", alignItems: "center", justifyContent: "center" }, rowTitle: { color: "#17251D", fontSize: 12, lineHeight: 16, fontWeight: "900" }, rowDetail: { marginTop: 3, color: "#6C7A70", fontSize: 10, lineHeight: 14, fontWeight: "600" }, policy: { margin: 16, padding: 14, borderRadius: 17, backgroundColor: "#E0F4E7", flexDirection: "row", gap: 9 }, policyTitle: { color: "#17683A", fontSize: 11, lineHeight: 15, fontWeight: "900" }, policyText: { marginTop: 3, color: "#487555", fontSize: 10, lineHeight: 14, fontWeight: "600" }, pressed: { transform: [{ scale: 0.985 }], opacity: 0.86 },
+});
