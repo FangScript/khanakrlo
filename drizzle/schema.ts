@@ -105,6 +105,30 @@ export const auditEvents = mysqlTable("audit_events", {
   index("audit_events_correlation_index").on(table.correlationId),
 ]);
 
+/**
+ * Transactional outbox for cross-domain events. A domain writes its own state
+ * and its integration event in the same database transaction; a future worker
+ * can publish pending records with retry and idempotency guarantees.
+ */
+export const domainOutboxEvents = mysqlTable("domain_outbox_events", {
+  id: int("id").autoincrement().primaryKey(),
+  domain: varchar("domain", { length: 80 }).notNull(),
+  eventType: varchar("eventType", { length: 120 }).notNull(),
+  aggregateType: varchar("aggregateType", { length: 80 }).notNull(),
+  aggregateId: varchar("aggregateId", { length: 80 }).notNull(),
+  payload: text("payload").notNull(),
+  deduplicationKey: varchar("deduplicationKey", { length: 180 }).notNull(),
+  attempts: int("attempts").default(0).notNull(),
+  lastError: text("lastError"),
+  nextAttemptAt: timestamp("nextAttemptAt"),
+  processedAt: timestamp("processedAt"),
+  occurredAt: timestamp("occurredAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("domain_outbox_events_dedupe_unique").on(table.deduplicationKey),
+  index("domain_outbox_events_pending_index").on(table.domain, table.processedAt, table.nextAttemptAt, table.occurredAt),
+  index("domain_outbox_events_aggregate_index").on(table.aggregateType, table.aggregateId),
+]);
+
 export const businessApplicationDetails = mysqlTable("business_application_details", {
   id: int("id").autoincrement().primaryKey(), applicationId: int("applicationId").notNull(), legalName: varchar("legalName", { length: 180 }), displayName: varchar("displayName", { length: 160 }), supportPhone: varchar("supportPhone", { length: 20 }), city: varchar("city", { length: 120 }), addressLine1: varchar("addressLine1", { length: 255 }), description: text("description"), pickupInstructions: varchar("pickupInstructions", { length: 500 }), prepTimeMinutes: int("prepTimeMinutes"), openingTime: varchar("openingTime", { length: 5 }), closingTime: varchar("closingTime", { length: 5 }), cuisine: varchar("cuisine", { length: 120 }), cloudKitchenPayload: text("cloudKitchenPayload"), serviceZonePayload: text("serviceZonePayload"), menuPayload: text("menuPayload"), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [uniqueIndex("business_application_details_application_unique").on(table.applicationId)]);
@@ -171,6 +195,7 @@ export type AccountProfile = typeof accountProfiles.$inferSelect;
 export type WorkspaceMembership = typeof workspaceMemberships.$inferSelect;
 export type WorkspaceApplication = typeof workspaceApplications.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
+export type DomainOutboxEvent = typeof domainOutboxEvents.$inferSelect;
 export type BusinessApplicationDetail = typeof businessApplicationDetails.$inferSelect;
 export type BusinessOrganisation = typeof businessOrganisations.$inferSelect;
 export type BusinessOutlet = typeof businessOutlets.$inferSelect;

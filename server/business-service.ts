@@ -10,6 +10,7 @@ import {
   businessReviewChecklists,
   businessStaffMemberships,
   cloudKitchens,
+  domainOutboxEvents,
   kitchenBrands,
   menuCategories,
   menuItems,
@@ -187,6 +188,7 @@ export async function reviewBusinessApplication(reviewerUserId: number, applicat
         for (const brand of kitchenPayload.brands) { await tx.insert(kitchenBrands).values({ cloudKitchenId: kitchen.id, name: brand.name, cuisine: brand.cuisine, description: brand.description ?? null, prepTimeMinutes: detail.prepTimeMinutes! }); const storedBrand = (await tx.select().from(kitchenBrands).where(and(eq(kitchenBrands.cloudKitchenId, kitchen.id), eq(kitchenBrands.name, brand.name))).limit(1))[0]; if (storedBrand) for (const [order, category] of menu.entries()) { await tx.insert(menuCategories).values({ kitchenBrandId: storedBrand.id, name: category.category, sortOrder: order }); const storedCategory = (await tx.select().from(menuCategories).where(and(eq(menuCategories.kitchenBrandId, storedBrand.id), eq(menuCategories.name, category.category))).limit(1))[0]; if (storedCategory) for (const item of category.items) await tx.insert(menuItems).values({ categoryId: storedCategory.id, name: item.name, description: item.description ?? null, priceMinor: item.priceMinor, prepTimeMinutes: item.prepTimeMinutes }); } }
       }
       await tx.insert(workspaceMemberships).values({ userId: application.userId, workspaceType: "business", status: "active", applicationId, approvedAt: now }).onDuplicateKeyUpdate({ set: { status: "active", applicationId, approvedAt: now, suspendedAt: null, suspensionReason: null, updatedAt: now } });
+      await tx.insert(domainOutboxEvents).values({ domain: "business-onboarding", eventType: "business.approved", aggregateType: "business_application", aggregateId: String(applicationId), payload: JSON.stringify({ applicationId, organisationId: organisation.id, ownerUserId: application.userId, businessType }), deduplicationKey: `business.approved:${applicationId}` }).onDuplicateKeyUpdate({ set: { processedAt: null, attempts: 0, lastError: null } });
     }
     if (status === "suspended") await tx.insert(workspaceMemberships).values({ userId: application.userId, workspaceType: "business", status: "suspended", applicationId, suspendedAt: now, suspensionReason: reviewNote?.trim() || "Suspended by operations" }).onDuplicateKeyUpdate({ set: { status: "suspended", suspendedAt: now, suspensionReason: reviewNote?.trim() || "Suspended by operations", updatedAt: now } });
     await tx.insert(auditEvents).values({ actorUserId: reviewerUserId, entityType: "business_application", entityId: String(applicationId), action: `business_application_${status}`, previousValue: JSON.stringify({ status: application.status }), nextValue: JSON.stringify({ status, reviewNote: reviewNote?.trim() || null }) });

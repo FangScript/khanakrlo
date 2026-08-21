@@ -1,24 +1,14 @@
 import { COOKIE_NAME } from "../shared/const.js";
-import { BUSINESS_TYPES, WORKSPACE_APPLICATION_TYPES, WORKSPACE_APPLICATION_STATUSES, validateWorkspaceApplication } from "../shared/workspace";
-import { BUSINESS_DOCUMENT_TYPES, type BusinessApplicationDraft } from "../shared/business";
-import * as db from "./db";
-import * as business from "./business-service";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
-import { z } from "zod";
-
-const workspaceApplicationInput = z.object({
-  workspaceType: z.enum(WORKSPACE_APPLICATION_TYPES),
-  businessType: z.enum(BUSINESS_TYPES).optional(),
-  displayName: z.string().trim().max(160).optional(),
-  phoneE164: z.string().regex(/^\+[1-9]\d{7,14}$/).optional(),
-  city: z.string().trim().max(120).optional(),
-});
-
-const businessDraftInput = z.object({
-  legalName: z.string().max(180), displayName: z.string().max(160), supportPhone: z.string().max(20), city: z.string().max(120), addressLine1: z.string().max(255), description: z.string().max(2000).optional(), pickupInstructions: z.string().max(500).optional(), prepTimeMinutes: z.number().int(), openingTime: z.string().max(5), closingTime: z.string().max(5), serviceZone: z.object({ name: z.string().max(120), deliveryFeeMinor: z.number().int(), minimumOrderMinor: z.number().int() }), menu: z.array(z.object({ category: z.string().max(120), items: z.array(z.object({ name: z.string().max(160), description: z.string().max(1000).optional(), priceMinor: z.number().int(), prepTimeMinutes: z.number().int() })) })), businessType: z.enum(BUSINESS_TYPES), restaurant: z.object({ cuisine: z.string().max(120) }).optional(), cloudKitchen: z.object({ kitchenName: z.string().max(160), capacityLimit: z.number().int(), brands: z.array(z.object({ name: z.string().max(160), cuisine: z.string().max(120), description: z.string().max(1000).optional() })), stations: z.array(z.object({ name: z.string().max(120), capacity: z.number().int() })) }).optional(),
-});
+import { businessOnboardingService } from "./modules/business-onboarding/service";
+import { catalogueService } from "./modules/catalogue/service";
+import { businessDocumentUploadInput, businessDraftInput, businessLiveStatusInput, catalogueCategoryCreateInput, catalogueCategoryUpdateInput, catalogueItemCreateInput, catalogueItemUpdateInput, catalogueModifierCreateInput, catalogueModifierUpdateInput, discoveryFilterInput } from "./modules/contracts/business";
+import { workspaceApplicationReviewInput, workspaceApplicationSaveInput } from "./modules/contracts/workspace";
+import { discoveryService } from "./modules/discovery/service";
+import { callDomain } from "./modules/gateway/domain-error";
+import { identityWorkspaceService } from "./modules/identity-workspace/service";
 
 export const appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -35,53 +25,48 @@ export const appRouter = router({
   }),
 
   workspace: router({
-    mine: protectedProcedure.query(({ ctx }) => db.getWorkspaceSummaries(ctx.user.id)),
+    mine: protectedProcedure.query(({ ctx }) => callDomain(() => identityWorkspaceService.getWorkspaceSummaries(ctx.user.id))),
     saveApplication: protectedProcedure
-      .input(workspaceApplicationInput.extend({ submit: z.boolean().default(false) }))
+      .input(workspaceApplicationSaveInput)
       .mutation(async ({ ctx, input }) => {
-        const { submit, ...application } = input;
-        if (submit) {
-          const errors = validateWorkspaceApplication(application);
-          if (errors.length > 0) throw new Error(errors.join(" "));
-        }
-        const applicationId = await db.saveWorkspaceApplication(ctx.user.id, application, submit);
+        const applicationId = await callDomain(() => identityWorkspaceService.saveApplication(ctx.user.id, input));
         return { applicationId };
       }),
     reviewApplication: protectedProcedure
-      .input(z.object({ applicationId: z.number().int().positive(), status: z.enum(["changes_required", "approved", "suspended"]), reviewNote: z.string().trim().max(1000).optional() }))
+      .input(workspaceApplicationReviewInput)
       .mutation(async ({ ctx, input }) => {
         if (ctx.user.role !== "admin") throw new Error("Administrator access is required.");
-        await db.reviewWorkspaceApplication(ctx.user.id, input.applicationId, input.status, input.reviewNote);
+        await callDomain(() => identityWorkspaceService.reviewApplication(ctx.user.id, input));
         return { success: true } as const;
       }),
   }),
 
   businessApplication: router({
-    mine: protectedProcedure.query(({ ctx }) => business.getMyBusinessApplication(ctx.user.id)),
-    saveDraft: protectedProcedure.input(businessDraftInput).mutation(({ ctx, input }) => business.saveBusinessDraft(ctx.user.id, input as BusinessApplicationDraft, false)),
-    submit: protectedProcedure.input(businessDraftInput).mutation(({ ctx, input }) => business.saveBusinessDraft(ctx.user.id, input as BusinessApplicationDraft, true)),
-    uploadDocument: protectedProcedure.input(z.object({ documentType: z.enum(BUSINESS_DOCUMENT_TYPES), originalName: z.string().min(1).max(255), mimeType: z.enum(["application/pdf", "image/jpeg", "image/png"]), dataBase64: z.string().min(1).max(7_000_000) })).mutation(({ ctx, input }) => business.uploadBusinessDocument(ctx.user.id, input)),
+    mine: protectedProcedure.query(({ ctx }) => callDomain(() => businessOnboardingService.getMyApplication(ctx.user.id))),
+    saveDraft: protectedProcedure.input(businessDraftInput).mutation(({ ctx, input }) => callDomain(() => businessOnboardingService.saveDraft(ctx.user.id, input, false))),
+    submit: protectedProcedure.input(businessDraftInput).mutation(({ ctx, input }) => callDomain(() => businessOnboardingService.saveDraft(ctx.user.id, input, true))),
+    uploadDocument: protectedProcedure.input(businessDocumentUploadInput).mutation(({ ctx, input }) => callDomain(() => businessOnboardingService.uploadDocument(ctx.user.id, input))),
   }),
 
   businessOperations: router({
-    mine: protectedProcedure.query(({ ctx }) => business.getMyBusinessOperations(ctx.user.id)),
-    catalogue: protectedProcedure.query(({ ctx }) => business.getManagedCatalogue(ctx.user.id)),
-    createCategory: protectedProcedure.input(z.object({ name: z.string().trim().min(1).max(120), scopeId: z.number().int().positive().optional(), sortOrder: z.number().int().min(0).max(999).optional() })).mutation(({ ctx, input }) => business.createCatalogueCategory(ctx.user.id, input)),
-    updateCategory: protectedProcedure.input(z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(1).max(120), sortOrder: z.number().int().min(0).max(999), isActive: z.boolean() })).mutation(({ ctx, input }) => business.updateCatalogueCategory(ctx.user.id, input)),
-    createItem: protectedProcedure.input(z.object({ categoryId: z.number().int().positive(), name: z.string().trim().min(1).max(160), description: z.string().trim().max(1000).optional(), priceMinor: z.number().int().min(0), prepTimeMinutes: z.number().int().min(1).max(1440) })).mutation(({ ctx, input }) => business.createCatalogueItem(ctx.user.id, input)),
-    updateItem: protectedProcedure.input(z.object({ itemId: z.number().int().positive(), name: z.string().trim().min(1).max(160), description: z.string().trim().max(1000).optional(), priceMinor: z.number().int().min(0), prepTimeMinutes: z.number().int().min(1).max(1440), isAvailable: z.boolean() })).mutation(({ ctx, input }) => business.updateCatalogueItem(ctx.user.id, input)),
-    createModifier: protectedProcedure.input(z.object({ menuItemId: z.number().int().positive(), name: z.string().trim().min(1).max(120), priceMinor: z.number().int().min(0), isRequired: z.boolean() })).mutation(({ ctx, input }) => business.createCatalogueModifier(ctx.user.id, input)),
-    updateModifier: protectedProcedure.input(z.object({ modifierId: z.number().int().positive(), name: z.string().trim().min(1).max(120), priceMinor: z.number().int().min(0), isRequired: z.boolean(), isAvailable: z.boolean() })).mutation(({ ctx, input }) => business.updateCatalogueModifier(ctx.user.id, input)),
-    setLiveStatus: protectedProcedure.input(z.object({ status: z.enum(["live", "paused"]) })).mutation(({ ctx, input }) => business.setBusinessLiveStatus(ctx.user.id, input.status)),
+    mine: protectedProcedure.query(({ ctx }) => callDomain(() => catalogueService.getManagedCatalogue(ctx.user.id).then(({ organisation, outlets, kitchens }) => ({ organisation, outlets, kitchens })))),
+    catalogue: protectedProcedure.query(({ ctx }) => callDomain(() => catalogueService.getManagedCatalogue(ctx.user.id))),
+    createCategory: protectedProcedure.input(catalogueCategoryCreateInput).mutation(({ ctx, input }) => callDomain(() => catalogueService.createCategory(ctx.user.id, input))),
+    updateCategory: protectedProcedure.input(catalogueCategoryUpdateInput).mutation(({ ctx, input }) => callDomain(() => catalogueService.updateCategory(ctx.user.id, input))),
+    createItem: protectedProcedure.input(catalogueItemCreateInput).mutation(({ ctx, input }) => callDomain(() => catalogueService.createItem(ctx.user.id, input))),
+    updateItem: protectedProcedure.input(catalogueItemUpdateInput).mutation(({ ctx, input }) => callDomain(() => catalogueService.updateItem(ctx.user.id, input))),
+    createModifier: protectedProcedure.input(catalogueModifierCreateInput).mutation(({ ctx, input }) => callDomain(() => catalogueService.createModifier(ctx.user.id, input))),
+    updateModifier: protectedProcedure.input(catalogueModifierUpdateInput).mutation(({ ctx, input }) => callDomain(() => catalogueService.updateModifier(ctx.user.id, input))),
+    setLiveStatus: protectedProcedure.input(businessLiveStatusInput).mutation(({ ctx, input }) => callDomain(() => catalogueService.setLiveStatus(ctx.user.id, input.status))),
   }),
 
   discovery: router({
-    liveBusinesses: publicProcedure.input(z.object({ businessType: z.enum(BUSINESS_TYPES).optional() }).optional()).query(({ input }) => business.getLiveBusinessDiscovery(input?.businessType)),
+    liveBusinesses: publicProcedure.input(discoveryFilterInput).query(({ input }) => callDomain(() => discoveryService.getLiveBusinesses(input?.businessType))),
   }),
 
   adminBusiness: router({
-    listApplications: protectedProcedure.query(({ ctx }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); return business.listBusinessApplications(); }),
-    reviewApplication: protectedProcedure.input(z.object({ applicationId: z.number().int().positive(), status: z.enum(["changes_required", "approved", "suspended"]), reviewNote: z.string().trim().max(1000).optional() })).mutation(async ({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); await business.reviewBusinessApplication(ctx.user.id, input.applicationId, input.status, input.reviewNote); return { success: true } as const; }),
+    listApplications: protectedProcedure.query(({ ctx }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); return callDomain(() => businessOnboardingService.listApplications()); }),
+    reviewApplication: protectedProcedure.input(workspaceApplicationReviewInput).mutation(async ({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); await callDomain(() => businessOnboardingService.reviewApplication(ctx.user.id, input.applicationId, input.status, input.reviewNote)); return { success: true } as const; }),
   }),
 
 });
