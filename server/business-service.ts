@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import {
   auditEvents,
   businessApplicationDetails,
+  businessCommissionPolicies,
   businessDocuments,
   businessHours,
   businessOrganisations,
@@ -179,6 +180,8 @@ export async function reviewBusinessApplication(reviewerUserId: number, applicat
         organisation = (await tx.select().from(businessOrganisations).where(eq(businessOrganisations.applicationId, applicationId)).limit(1))[0];
       }
       if (!organisation) throw new Error("Business activation could not create an organisation.");
+      const currentPolicy = (await tx.select().from(businessCommissionPolicies).where(and(eq(businessCommissionPolicies.organisationId, organisation.id), isNull(businessCommissionPolicies.effectiveUntil))).limit(1))[0];
+      if (!currentPolicy) await tx.insert(businessCommissionPolicies).values({ organisationId: organisation.id, commissionRateBps: 1200, revenueBase: "item_subtotal_after_discount", taxTreatment: "pilot_pending", settlementCadence: "manual_pilot", effectiveFrom: now, approvedByUserId: reviewerUserId });
       await tx.insert(businessStaffMemberships).values({ organisationId: organisation.id, userId: application.userId, staffRole: "owner" }).onDuplicateKeyUpdate({ set: { isActive: true, updatedAt: now } });
       const zone = parseJson(detail.serviceZonePayload, { name: `${detail.city} core`, deliveryFeeMinor: 0, minimumOrderMinor: 0 });
       const menu = parseJson<Array<{ category: string; items: Array<{ name: string; description?: string; priceMinor: number; prepTimeMinutes: number }> }>>(detail.menuPayload, []);

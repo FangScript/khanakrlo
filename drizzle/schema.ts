@@ -142,6 +142,24 @@ export const businessOrganisations = mysqlTable("business_organisations", {
   id: int("id").autoincrement().primaryKey(), applicationId: int("applicationId").notNull(), ownerUserId: int("ownerUserId").notNull(), businessType: mysqlEnum("businessType", BUSINESS_TYPES).notNull(), legalName: varchar("legalName", { length: 180 }).notNull(), displayName: varchar("displayName", { length: 160 }).notNull(), supportPhone: varchar("supportPhone", { length: 20 }).notNull(), city: varchar("city", { length: 120 }).notNull(), status: mysqlEnum("status", BUSINESS_OPERATIONAL_STATUSES).default("approved").notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [uniqueIndex("business_organisations_application_unique").on(table.applicationId), index("business_organisations_owner_index").on(table.ownerUserId), index("business_organisations_status_index").on(table.businessType, table.status)]);
 
+/** Approved commercial terms. Rates are basis points: 1,200 = 12.00%. */
+export const businessCommissionPolicies = mysqlTable("business_commission_policies", {
+  id: int("id").autoincrement().primaryKey(),
+  organisationId: int("organisationId").notNull(),
+  commissionRateBps: int("commissionRateBps").notNull(),
+  revenueBase: mysqlEnum("revenueBase", ["item_subtotal_after_discount"]).default("item_subtotal_after_discount").notNull(),
+  taxTreatment: varchar("taxTreatment", { length: 120 }).default("pilot_pending").notNull(),
+  settlementCadence: varchar("settlementCadence", { length: 80 }).default("manual_pilot").notNull(),
+  effectiveFrom: timestamp("effectiveFrom").defaultNow().notNull(),
+  effectiveUntil: timestamp("effectiveUntil"),
+  approvedByUserId: int("approvedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("business_commission_policy_active_index").on(table.organisationId, table.effectiveFrom, table.effectiveUntil),
+  index("business_commission_policy_approver_index").on(table.approvedByUserId),
+]);
+
 export const businessOutlets = mysqlTable("business_outlets", {
   id: int("id").autoincrement().primaryKey(), organisationId: int("organisationId").notNull(), name: varchar("name", { length: 160 }).notNull(), cuisine: varchar("cuisine", { length: 120 }).notNull(), description: text("description"), addressLine1: varchar("addressLine1", { length: 255 }).notNull(), city: varchar("city", { length: 120 }).notNull(), latitudeE6: int("latitudeE6"), longitudeE6: int("longitudeE6"), pickupInstructions: varchar("pickupInstructions", { length: 500 }), prepTimeMinutes: int("prepTimeMinutes").notNull(), acceptsDelivery: boolean("acceptsDelivery").default(true).notNull(), isPaused: boolean("isPaused").default(false).notNull(), status: mysqlEnum("status", BUSINESS_OPERATIONAL_STATUSES).default("approved").notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [index("business_outlets_organisation_index").on(table.organisationId), index("business_outlets_status_index").on(table.city, table.status)]);
@@ -201,6 +219,13 @@ export const orders = mysqlTable("orders", {
   serviceFeeMinor: int("serviceFeeMinor").default(0).notNull(),
   discountMinor: int("discountMinor").default(0).notNull(),
   totalMinor: int("totalMinor").notNull(),
+  commissionPolicyId: int("commissionPolicyId"),
+  commissionRateBps: int("commissionRateBps").default(0).notNull(),
+  commissionableSubtotalMinor: int("commissionableSubtotalMinor").default(0).notNull(),
+  platformCommissionMinor: int("platformCommissionMinor").default(0).notNull(),
+  restaurantPayableMinor: int("restaurantPayableMinor").default(0).notNull(),
+  riderCashCustodyMinor: int("riderCashCustodyMinor").default(0).notNull(),
+  settlementStatus: mysqlEnum("settlementStatus", ["unsettled", "reconciled", "variance", "waived"]).default("unsettled").notNull(),
   idempotencyKey: varchar("idempotencyKey", { length: 100 }).notNull(),
   placedAt: timestamp("placedAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -209,6 +234,39 @@ export const orders = mysqlTable("orders", {
   uniqueIndex("orders_customer_idempotency_unique").on(table.customerUserId, table.idempotencyKey),
   index("orders_customer_created_index").on(table.customerUserId, table.placedAt),
   index("orders_business_status_index").on(table.organisationId, table.status, table.placedAt),
+  index("orders_settlement_status_index").on(table.organisationId, table.settlementStatus, table.placedAt),
+]);
+
+/** The Rider explicitly confirms COD collection; delivery state alone never marks cash as paid. */
+export const codCollections = mysqlTable("cod_collections", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  riderUserId: int("riderUserId").notNull(),
+  expectedMinor: int("expectedMinor").notNull(),
+  collectedMinor: int("collectedMinor").notNull(),
+  varianceMinor: int("varianceMinor").notNull(),
+  varianceReason: varchar("varianceReason", { length: 500 }),
+  status: mysqlEnum("status", ["collected", "short", "over"]).notNull(),
+  confirmedAt: timestamp("confirmedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("cod_collections_order_unique").on(table.orderId),
+  index("cod_collections_rider_confirmed_index").on(table.riderUserId, table.confirmedAt),
+]);
+
+/** Immutable double-entry-style commercial positions for pilot reconciliation. */
+export const settlementLedgerEntries = mysqlTable("settlement_ledger_entries", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  organisationId: int("organisationId").notNull(),
+  partyType: mysqlEnum("partyType", ["platform", "restaurant", "rider"]).notNull(),
+  entryType: mysqlEnum("entryType", ["commission", "restaurant_payable", "rider_cash_custody", "collection_variance"]).notNull(),
+  amountMinor: int("amountMinor").notNull(),
+  status: mysqlEnum("status", ["open", "reconciled", "void"]).default("open").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("settlement_ledger_order_party_type_unique").on(table.orderId, table.partyType, table.entryType),
+  index("settlement_ledger_org_status_index").on(table.organisationId, table.status, table.createdAt),
 ]);
 
 /** Immutable sold-dish snapshot. Live item IDs are retained for traceability but may be null in future imports. */

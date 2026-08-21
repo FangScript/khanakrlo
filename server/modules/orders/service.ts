@@ -12,5 +12,6 @@ export const orderService = {
   assignRider: (userId: number, input: Parameters<typeof legacyOrders.assignRiderToOrder>[1]) => legacyOrders.assignRiderToOrder(userId, input),
   riderQueue: (userId: number) => legacyOrders.listRiderOrders(userId),
   riderTransition: (userId: number, input: Parameters<typeof legacyOrders.transitionRiderOrder>[1]) => legacyOrders.transitionRiderOrder(userId, input),
+  confirmCodCollection: (userId: number, input: Parameters<typeof legacyOrders.confirmCodCollection>[1]) => legacyOrders.confirmCodCollection(userId, input),
   updateRiderLocation: (userId: number, input: Parameters<typeof legacyOrders.updateRiderLocation>[1]) => legacyOrders.updateRiderLocation(userId, input),
 };

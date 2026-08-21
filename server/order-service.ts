@@ -3,11 +3,13 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   accountProfiles,
   auditEvents,
+  businessCommissionPolicies,
   businessOrganisations,
   businessOutlets,
   businessStaffMemberships,
   cloudKitchens,
   customerAddresses,
+  codCollections,
   domainOutboxEvents,
   kitchenBrands,
   menuCategories,
@@ -20,6 +22,7 @@ import {
   riderAssignments,
   riderLocationUpdates,
   serviceZones,
+  settlementLedgerEntries,
   workspaceMemberships,
 } from "../drizzle/schema";
 import { canTransitionOrder, type OrderStatus } from "../shared/order";
@@ -57,6 +60,7 @@ type CheckoutQuote = {
   serviceFeeMinor: number;
   discountMinor: number;
   totalMinor: number;
+  commission: { policyId: number; rateBps: number; commissionableSubtotalMinor: number; platformCommissionMinor: number; restaurantPayableMinor: number; riderCashCustodyMinor: number };
   delivery: { addressId: number; recipientName: string; phoneE164: string; addressLine1: string; addressLine2: string | null; city: string; instructions: string | null; latitudeE6: number; longitudeE6: number; zoneId: number; distanceMeters: number | null; estimatedCourierMinutes: number | null; estimatedTotalMinutes: number | null };
 };
 
@@ -71,8 +75,8 @@ function eventKey(eventType: string, aggregateId: number) {
 async function calculateQuote(db: any, userId: number, input: OrderQuoteInput): Promise<CheckoutQuote> {
   const address = (await db.select().from(customerAddresses).where(and(eq(customerAddresses.id, input.deliveryAddressId), eq(customerAddresses.userId, userId), isNull(customerAddresses.archivedAt))).limit(1))[0];
   if (!address) throw new DomainError("NOT_FOUND", "Choose a saved delivery address before checkout.");
-  const [itemRows, modifierRows, categoryRows, outletRows, kitchenRows, brandRows, organisationRows, zoneRows] = await Promise.all([
-    db.select().from(menuItems), db.select().from(menuModifiers), db.select().from(menuCategories), db.select().from(businessOutlets), db.select().from(cloudKitchens), db.select().from(kitchenBrands), db.select().from(businessOrganisations), db.select().from(serviceZones),
+  const [itemRows, modifierRows, categoryRows, outletRows, kitchenRows, brandRows, organisationRows, zoneRows, commissionPolicies] = await Promise.all([
+    db.select().from(menuItems), db.select().from(menuModifiers), db.select().from(menuCategories), db.select().from(businessOutlets), db.select().from(cloudKitchens), db.select().from(kitchenBrands), db.select().from(businessOrganisations), db.select().from(serviceZones), db.select().from(businessCommissionPolicies),
   ]);
   const requestedItemIds = new Set(input.items.map((line) => line.menuItemId));
   const requestedItems = itemRows.filter((item: typeof menuItems.$inferSelect) => requestedItemIds.has(item.id));
@@ -121,7 +125,15 @@ async function calculateQuote(db: any, userId: number, input: OrderQuoteInput): 
   const deliveryFeeMinor = zone.deliveryFeeMinor;
   const serviceFeeMinor = 0;
   const discountMinor = 0;
-  return { organisationId: first.organisationId!, outletId: first.outletId, kitchenBrandId: first.kitchenBrandId, lines: resolved.map(({ organisationId: _organisationId, outletId: _outletId, kitchenBrandId: _kitchenBrandId, ...line }) => line), itemSubtotalMinor, deliveryFeeMinor, serviceFeeMinor, discountMinor, totalMinor: itemSubtotalMinor + deliveryFeeMinor + serviceFeeMinor - discountMinor, delivery: { addressId: address.id, recipientName: address.recipientName, phoneE164: address.phoneE164, addressLine1: address.addressLine1, addressLine2: address.addressLine2, city: address.city, instructions: address.instructions, latitudeE6: address.latitudeE6, longitudeE6: address.longitudeE6, zoneId: zone.id, distanceMeters: deliveryDistance, estimatedCourierMinutes, estimatedTotalMinutes } };
+  const now = new Date();
+  const policy = commissionPolicies.filter((candidate: typeof businessCommissionPolicies.$inferSelect) => candidate.organisationId === first.organisationId && candidate.effectiveFrom <= now && (candidate.effectiveUntil === null || candidate.effectiveUntil > now)).sort((left: typeof businessCommissionPolicies.$inferSelect, right: typeof businessCommissionPolicies.$inferSelect) => right.effectiveFrom.getTime() - left.effectiveFrom.getTime())[0];
+  if (!policy) throw new DomainError("CONFLICT", "This Business has no active commission policy and cannot accept pilot orders.");
+  if (policy.commissionRateBps < 1_200 || policy.commissionRateBps > 1_500) throw new DomainError("CONFLICT", "This Business commission policy is outside the approved 12–15% pilot range.");
+  const commissionableSubtotalMinor = Math.max(0, itemSubtotalMinor - discountMinor);
+  const platformCommissionMinor = Math.round((commissionableSubtotalMinor * policy.commissionRateBps) / 10_000);
+  const restaurantPayableMinor = commissionableSubtotalMinor - platformCommissionMinor;
+  const totalMinor = itemSubtotalMinor + deliveryFeeMinor + serviceFeeMinor - discountMinor;
+  return { organisationId: first.organisationId!, outletId: first.outletId, kitchenBrandId: first.kitchenBrandId, lines: resolved.map(({ organisationId: _organisationId, outletId: _outletId, kitchenBrandId: _kitchenBrandId, ...line }) => line), itemSubtotalMinor, deliveryFeeMinor, serviceFeeMinor, discountMinor, totalMinor, commission: { policyId: policy.id, rateBps: policy.commissionRateBps, commissionableSubtotalMinor, platformCommissionMinor, restaurantPayableMinor, riderCashCustodyMinor: totalMinor }, delivery: { addressId: address.id, recipientName: address.recipientName, phoneE164: address.phoneE164, addressLine1: address.addressLine1, addressLine2: address.addressLine2, city: address.city, instructions: address.instructions, latitudeE6: address.latitudeE6, longitudeE6: address.longitudeE6, zoneId: zone.id, distanceMeters: deliveryDistance, estimatedCourierMinutes, estimatedTotalMinutes } };
 }
 
 async function ownedBusinessOrganisationId(db: any, userId: number) {
@@ -167,9 +179,14 @@ export async function placeOrder(userId: number, input: OrderPlaceInput) {
     if (existing) return hydrateOrder(tx, existing);
     const quote = await calculateQuote(tx, userId, input);
     const publicId = publicOrderId();
-    await tx.insert(orders).values({ publicId, customerUserId: userId, organisationId: quote.organisationId, outletId: quote.outletId, kitchenBrandId: quote.kitchenBrandId, paymentMethod: input.paymentMethod, paymentStatus: "cash_due", deliveryRecipientName: quote.delivery.recipientName, deliveryPhoneE164: quote.delivery.phoneE164, deliveryAddressLine1: quote.delivery.addressLine1, deliveryAddressLine2: quote.delivery.addressLine2, deliveryCity: quote.delivery.city, deliveryInstructions: quote.delivery.instructions, deliveryAddressId: quote.delivery.addressId, deliveryLatitudeE6: quote.delivery.latitudeE6, deliveryLongitudeE6: quote.delivery.longitudeE6, deliveryZoneId: quote.delivery.zoneId, deliveryDistanceMeters: quote.delivery.distanceMeters, estimatedCourierMinutes: quote.delivery.estimatedCourierMinutes, estimatedTotalMinutes: quote.delivery.estimatedTotalMinutes, itemSubtotalMinor: quote.itemSubtotalMinor, deliveryFeeMinor: quote.deliveryFeeMinor, serviceFeeMinor: quote.serviceFeeMinor, discountMinor: quote.discountMinor, totalMinor: quote.totalMinor, idempotencyKey: input.idempotencyKey });
+    await tx.insert(orders).values({ publicId, customerUserId: userId, organisationId: quote.organisationId, outletId: quote.outletId, kitchenBrandId: quote.kitchenBrandId, paymentMethod: input.paymentMethod, paymentStatus: "cash_due", deliveryRecipientName: quote.delivery.recipientName, deliveryPhoneE164: quote.delivery.phoneE164, deliveryAddressLine1: quote.delivery.addressLine1, deliveryAddressLine2: quote.delivery.addressLine2, deliveryCity: quote.delivery.city, deliveryInstructions: quote.delivery.instructions, deliveryAddressId: quote.delivery.addressId, deliveryLatitudeE6: quote.delivery.latitudeE6, deliveryLongitudeE6: quote.delivery.longitudeE6, deliveryZoneId: quote.delivery.zoneId, deliveryDistanceMeters: quote.delivery.distanceMeters, estimatedCourierMinutes: quote.delivery.estimatedCourierMinutes, estimatedTotalMinutes: quote.delivery.estimatedTotalMinutes, itemSubtotalMinor: quote.itemSubtotalMinor, deliveryFeeMinor: quote.deliveryFeeMinor, serviceFeeMinor: quote.serviceFeeMinor, discountMinor: quote.discountMinor, totalMinor: quote.totalMinor, commissionPolicyId: quote.commission.policyId, commissionRateBps: quote.commission.rateBps, commissionableSubtotalMinor: quote.commission.commissionableSubtotalMinor, platformCommissionMinor: quote.commission.platformCommissionMinor, restaurantPayableMinor: quote.commission.restaurantPayableMinor, riderCashCustodyMinor: quote.commission.riderCashCustodyMinor, idempotencyKey: input.idempotencyKey });
     const order = (await tx.select().from(orders).where(eq(orders.publicId, publicId)).limit(1))[0];
     if (!order) throw new DomainError("INTERNAL", "The order could not be created.");
+    await tx.insert(settlementLedgerEntries).values([
+      { orderId: order.id, organisationId: quote.organisationId, partyType: "platform", entryType: "commission", amountMinor: quote.commission.platformCommissionMinor },
+      { orderId: order.id, organisationId: quote.organisationId, partyType: "restaurant", entryType: "restaurant_payable", amountMinor: quote.commission.restaurantPayableMinor },
+      { orderId: order.id, organisationId: quote.organisationId, partyType: "rider", entryType: "rider_cash_custody", amountMinor: quote.commission.riderCashCustodyMinor },
+    ]);
     for (const line of quote.lines) {
       await tx.insert(orderItems).values({ orderId: order.id, menuItemId: line.menuItemId, dishName: line.dishName, dishDescription: line.dishDescription, dishImageKey: line.dishImageKey, unitPriceMinor: line.unitPriceMinor, modifierTotalMinor: line.modifierTotalMinor, lineTotalMinor: line.lineTotalMinor, quantity: line.quantity, prepTimeMinutes: line.prepTimeMinutes });
       const storedLine = (await tx.select().from(orderItems).where(and(eq(orderItems.orderId, order.id), eq(orderItems.menuItemId, line.menuItemId))).limit(1))[0];
@@ -177,8 +194,8 @@ export async function placeOrder(userId: number, input: OrderPlaceInput) {
       if (line.modifiers.length) await tx.insert(orderItemModifiers).values(line.modifiers.map((modifier) => ({ orderItemId: storedLine.id, ...modifier })));
     }
     await tx.insert(orderStatusHistory).values({ orderId: order.id, fromStatus: null, toStatus: "placed", actorUserId: userId, note: "Customer placed COD order" });
-    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "order", entityId: String(order.id), action: "order_placed", nextValue: JSON.stringify({ publicId, totalMinor: quote.totalMinor, paymentMethod: input.paymentMethod }) });
-    await tx.insert(domainOutboxEvents).values({ domain: "orders", eventType: "order.placed", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId, organisationId: quote.organisationId, customerUserId: userId, totalMinor: quote.totalMinor }), deduplicationKey: eventKey("order.placed", order.id) });
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "order", entityId: String(order.id), action: "order_placed", nextValue: JSON.stringify({ publicId, totalMinor: quote.totalMinor, paymentMethod: input.paymentMethod, commissionRateBps: quote.commission.rateBps, platformCommissionMinor: quote.commission.platformCommissionMinor }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "orders", eventType: "order.placed", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId, organisationId: quote.organisationId, customerUserId: userId, totalMinor: quote.totalMinor, commissionRateBps: quote.commission.rateBps, platformCommissionMinor: quote.commission.platformCommissionMinor }), deduplicationKey: eventKey("order.placed", order.id) });
     return hydrateOrder(tx, order);
   });
 }
@@ -261,12 +278,40 @@ export async function transitionRiderOrder(userId: number, input: { orderId: num
     if (!order || !assignment) throw new DomainError("NOT_FOUND", "Assigned delivery not found.");
     if (assignment.riderUserId !== userId) throw new DomainError("FORBIDDEN", "This delivery is assigned to another Rider.");
     if (!canTransitionOrder(order.status, input.toStatus)) throw new DomainError("CONFLICT", `Delivery cannot move from ${order.status} to ${input.toStatus}.`);
+    if (input.toStatus === "delivered" && order.paymentMethod === "cod" && order.paymentStatus !== "paid") throw new DomainError("CONFLICT", "Confirm COD collection before marking this order delivered.");
     const now = new Date();
-    await tx.update(orders).set({ status: input.toStatus, updatedAt: now, ...(input.toStatus === "delivered" ? { paymentStatus: "paid" } : {}) }).where(eq(orders.id, order.id));
+    await tx.update(orders).set({ status: input.toStatus, updatedAt: now }).where(eq(orders.id, order.id));
     await tx.insert(orderStatusHistory).values({ orderId: order.id, fromStatus: order.status, toStatus: input.toStatus, actorUserId: userId, note: input.note ?? null });
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "order", entityId: String(order.id), action: `rider_order_${input.toStatus}`, previousValue: JSON.stringify({ status: order.status }), nextValue: JSON.stringify({ status: input.toStatus, note: input.note ?? null }) });
     await tx.insert(domainOutboxEvents).values({ domain: "orders", eventType: `order.${input.toStatus}`, aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, riderUserId: userId, fromStatus: order.status, toStatus: input.toStatus }), deduplicationKey: eventKey(`order.${input.toStatus}`, order.id) });
-    return hydrateOrder(tx, { ...order, status: input.toStatus, paymentStatus: input.toStatus === "delivered" ? "paid" : order.paymentStatus, updatedAt: now });
+    return hydrateOrder(tx, { ...order, status: input.toStatus, updatedAt: now });
+  });
+}
+
+/** Confirms actual cash prior to delivery completion; a variance never silently clears settlement. */
+export async function confirmCodCollection(userId: number, input: { orderId: number; collectedMinor: number; varianceReason?: string }) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  return db.transaction(async (tx) => {
+    const order = (await tx.select().from(orders).where(eq(orders.id, input.orderId)).limit(1))[0];
+    const assignment = (await tx.select().from(riderAssignments).where(eq(riderAssignments.orderId, input.orderId)).limit(1))[0];
+    if (!order || !assignment) throw new DomainError("NOT_FOUND", "Assigned delivery not found.");
+    if (assignment.riderUserId !== userId) throw new DomainError("FORBIDDEN", "This delivery is assigned to another Rider.");
+    if (order.status !== "picked_up") throw new DomainError("CONFLICT", "COD can be confirmed only after pickup and before delivery completion.");
+    if (order.paymentMethod !== "cod") throw new DomainError("CONFLICT", "Cash collection applies only to COD orders.");
+    const existing = (await tx.select().from(codCollections).where(eq(codCollections.orderId, order.id)).limit(1))[0];
+    if (existing) return { ...existing, duplicate: true };
+    const expectedMinor = order.totalMinor;
+    const varianceMinor = input.collectedMinor - expectedMinor;
+    if (varianceMinor !== 0 && !input.varianceReason) throw new DomainError("VALIDATION", "Provide a variance reason when the collected cash differs from the expected COD amount.");
+    const collectionStatus = varianceMinor === 0 ? "collected" : varianceMinor < 0 ? "short" : "over" as const;
+    const now = new Date();
+    await tx.insert(codCollections).values({ orderId: order.id, riderUserId: userId, expectedMinor, collectedMinor: input.collectedMinor, varianceMinor, varianceReason: input.varianceReason ?? null, status: collectionStatus, confirmedAt: now });
+    await tx.update(orders).set({ paymentStatus: "paid", riderCashCustodyMinor: input.collectedMinor, settlementStatus: varianceMinor === 0 ? "unsettled" : "variance", updatedAt: now }).where(eq(orders.id, order.id));
+    if (varianceMinor !== 0) await tx.insert(settlementLedgerEntries).values({ orderId: order.id, organisationId: order.organisationId, partyType: "rider", entryType: "collection_variance", amountMinor: varianceMinor });
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "cod_collection", entityId: String(order.id), action: "cod_collection_confirmed", previousValue: JSON.stringify({ expectedMinor }), nextValue: JSON.stringify({ collectedMinor: input.collectedMinor, varianceMinor, varianceReason: input.varianceReason ?? null }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "payments", eventType: "cod.collection_confirmed", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, riderUserId: userId, expectedMinor, collectedMinor: input.collectedMinor, varianceMinor, settlementStatus: varianceMinor === 0 ? "unsettled" : "variance" }), deduplicationKey: eventKey("cod.collection_confirmed", order.id) });
+    return { orderId: order.id, expectedMinor, collectedMinor: input.collectedMinor, varianceMinor, status: collectionStatus, duplicate: false };
   });
 }
 

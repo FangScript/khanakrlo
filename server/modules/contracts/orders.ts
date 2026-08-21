@@ -22,6 +22,13 @@ export const orderByIdInput = z.object({ orderId: z.number().int().positive() })
 export const orderTransitionInput = z.object({ orderId: z.number().int().positive(), toStatus: z.enum(ORDER_STATUSES), note: z.string().trim().max(500).optional() });
 export const riderAssignmentInput = z.object({ orderId: z.number().int().positive(), riderUserId: z.number().int().positive() }).strict();
 export const riderOrderTransitionInput = z.object({ orderId: z.number().int().positive(), toStatus: z.enum(["picked_up", "delivered"]), note: z.string().trim().max(500).optional() }).strict();
+export const codCollectionConfirmInput = z.object({
+  orderId: z.number().int().positive(),
+  collectedMinor: z.number().int().min(0).max(10_000_000),
+  varianceReason: z.string().trim().min(3).max(500).optional(),
+}).strict().superRefine((input, context) => {
+  if (input.varianceReason !== undefined && input.varianceReason.length < 3) context.addIssue({ code: z.ZodIssueCode.custom, path: ["varianceReason"], message: "Provide a meaningful variance reason." });
+});
 export const riderLocationUpdateInput = z.object({ orderId: z.number().int().positive(), latitudeE6: z.number().int().min(-90_000_000).max(90_000_000), longitudeE6: z.number().int().min(-180_000_000).max(180_000_000), accuracyMeters: z.number().int().min(0).max(10_000).optional() }).strict();
 
 export type OrderQuoteInput = z.infer<typeof orderQuoteInput>;

@@ -90,3 +90,7 @@
 - [x] Add server-side Business service-zone validation and transparent delivery-time estimates to checkout.
 - [x] Build production Rider assignment from ready-for-pickup Restaurant orders with authoritative role checks.
 - [x] Add Rider foreground location sharing and customer order-tracking display with location freshness safeguards.
+- [x] Establish 12–15% Business commission policy, immutable order commission snapshots, COD collection controls, and settlement read models.
+- [ ] Replace preview OTP with a provider-ready, rate-limited Pakistan mobile authentication foundation and secure sessions.
+- [ ] Add guest COD checkout, ownership-safe guest order tracking, location-aware discovery/search, and quote improvements.
+- [ ] Add order-linked support tickets, device notification preferences, and durable outbox-driven notification delivery foundations.
