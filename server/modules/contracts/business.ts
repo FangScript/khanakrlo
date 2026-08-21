@@ -39,6 +39,7 @@ export const catalogueItemArchiveInput = z.object({ itemId: z.number().int().pos
 export const catalogueModifierArchiveInput = z.object({ modifierId: z.number().int().positive() });
 export const catalogueItemImageUploadInput = z.object({ menuItemId: z.number().int().positive(), mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]), dataBase64: z.string().min(1).max(7_000_000) });
 export const businessLiveStatusInput = z.object({ status: z.enum(["live", "paused"]) });
+export const deliveryZoneUpdateInput = z.object({ name: z.string().trim().min(1).max(120), centerLatitudeE6: z.number().int().min(-90_000_000).max(90_000_000), centerLongitudeE6: z.number().int().min(-180_000_000).max(180_000_000), radiusMeters: z.number().int().min(500).max(50_000), courierBaseMinutes: z.number().int().min(1).max(90), courierMinutesPerKm: z.number().int().min(1).max(20) }).strict();
 export const discoveryFilterInput = z.object({ businessType: z.enum(BUSINESS_TYPES).optional() }).optional();
 export const liveBusinessMenuInput = z.object({ businessId: z.number().int().positive() });
 

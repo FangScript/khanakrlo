@@ -86,3 +86,5 @@
 - [x] Add approved-Business-only Restaurant menu CRUD with dish prices, modifiers, availability, and archive controls.
 - [x] Build a persisted server-authoritative Order Service with immutable item, modifier, price, total, address, and status snapshots.
 - [x] Add secure approved-Business dish-image upload and responsive image delivery in customer menus.
+- [x] Build a persisted customer address book with labelled, geocoded, selectable default delivery addresses.
+- [x] Add server-side Business service-zone validation and transparent delivery-time estimates to checkout.

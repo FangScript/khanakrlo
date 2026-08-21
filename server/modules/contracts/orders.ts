@@ -8,18 +8,9 @@ export const orderLineInput = z.object({
   modifierIds: z.array(z.number().int().positive()).max(20).default([]),
 }).strict();
 
-export const orderDeliveryAddressInput = z.object({
-  recipientName: z.string().trim().min(1).max(160),
-  phoneE164: z.string().trim().regex(/^\+92\d{10}$/),
-  addressLine1: z.string().trim().min(4).max(255),
-  addressLine2: z.string().trim().max(255).optional(),
-  city: z.string().trim().min(2).max(120),
-  instructions: z.string().trim().max(500).optional(),
-}).strict();
-
 export const orderQuoteInput = z.object({
   items: z.array(orderLineInput).min(1).max(30),
-  deliveryAddress: orderDeliveryAddressInput,
+  deliveryAddressId: z.number().int().positive(),
   paymentMethod: z.enum(ORDER_PAYMENT_METHODS).default("cod"),
 }).strict();
 

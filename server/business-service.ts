@@ -420,6 +420,27 @@ export async function setBusinessLiveStatus(userId: number, status: "live" | "pa
   return { status };
 }
 
+export async function getManagedDeliveryZone(userId: number) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const outletId = context.outlets[0]?.id ?? null;
+  const cloudKitchenId = context.kitchens[0]?.id ?? null;
+  const zones = await context.db.select().from(serviceZones).where(and(eq(serviceZones.organisationId, context.organisation.id), eq(serviceZones.isActive, true)));
+  const zone = zones.find((candidate: typeof serviceZones.$inferSelect) => candidate.outletId === outletId || candidate.cloudKitchenId === cloudKitchenId);
+  if (!zone) throw new Error("No active delivery zone is configured for this Business.");
+  return zone;
+}
+
+export async function updateManagedDeliveryZone(userId: number, input: { name: string; centerLatitudeE6: number; centerLongitudeE6: number; radiusMeters: number; courierBaseMinutes: number; courierMinutesPerKm: number }) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const current = await getManagedDeliveryZone(userId);
+  await context.db.transaction(async (tx: any) => {
+    await tx.update(serviceZones).set({ ...input, updatedAt: new Date() }).where(eq(serviceZones.id, current.id));
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "service_zone", entityId: String(current.id), action: "service_zone_delivery_geometry_updated", previousValue: JSON.stringify({ name: current.name, centerLatitudeE6: current.centerLatitudeE6, centerLongitudeE6: current.centerLongitudeE6, radiusMeters: current.radiusMeters, courierBaseMinutes: current.courierBaseMinutes, courierMinutesPerKm: current.courierMinutesPerKm }), nextValue: JSON.stringify(input) });
+    await tx.insert(domainOutboxEvents).values({ domain: "business", eventType: "service_zone.updated", aggregateType: "service_zone", aggregateId: String(current.id), payload: JSON.stringify({ serviceZoneId: current.id, organisationId: context.organisation.id, ...input }), deduplicationKey: `service_zone.updated:${current.id}:${crypto.randomUUID()}` });
+  });
+  return getManagedDeliveryZone(userId);
+}
+
 export async function getLiveBusinessDiscovery(filter?: "restaurant" | "cloud_kitchen") {
   const db = await requireDb();
   const organisations = (await db.select().from(businessOrganisations).where(eq(businessOrganisations.status, "live"))).filter((organisation) => !filter || organisation.businessType === filter);

@@ -40,6 +40,10 @@ export const accountProfiles = mysqlTable("account_profiles", {
   uniqueIndex("account_profiles_phone_unique").on(table.phoneE164),
 ]);
 
+export const customerAddresses = mysqlTable("customer_addresses", {
+  id: int("id").autoincrement().primaryKey(), userId: int("userId").notNull(), label: varchar("label", { length: 80 }).notNull(), recipientName: varchar("recipientName", { length: 160 }).notNull(), phoneE164: varchar("phoneE164", { length: 20 }).notNull(), addressLine1: varchar("addressLine1", { length: 255 }).notNull(), addressLine2: varchar("addressLine2", { length: 255 }), city: varchar("city", { length: 120 }).notNull(), instructions: varchar("instructions", { length: 500 }), latitudeE6: int("latitudeE6").notNull(), longitudeE6: int("longitudeE6").notNull(), geocodeSource: mysqlEnum("geocodeSource", ["device", "manual"]).default("device").notNull(), isDefault: boolean("isDefault").default(false).notNull(), archivedAt: timestamp("archivedAt"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("customer_addresses_user_index").on(table.userId, table.archivedAt), index("customer_addresses_coordinates_index").on(table.city, table.latitudeE6, table.longitudeE6)]);
+
 /**
  * A workspace is an approved role context inside the single app. Customer is
  * created automatically; Business and Rider are approval-gated.
@@ -155,7 +159,7 @@ export const productionStations = mysqlTable("production_stations", {
 }, (table) => [index("production_stations_kitchen_index").on(table.cloudKitchenId)]);
 
 export const serviceZones = mysqlTable("service_zones", {
-  id: int("id").autoincrement().primaryKey(), organisationId: int("organisationId").notNull(), outletId: int("outletId"), cloudKitchenId: int("cloudKitchenId"), name: varchar("name", { length: 120 }).notNull(), city: varchar("city", { length: 120 }).notNull(), deliveryFeeMinor: int("deliveryFeeMinor").default(0).notNull(), minimumOrderMinor: int("minimumOrderMinor").default(0).notNull(), isActive: boolean("isActive").default(true).notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  id: int("id").autoincrement().primaryKey(), organisationId: int("organisationId").notNull(), outletId: int("outletId"), cloudKitchenId: int("cloudKitchenId"), name: varchar("name", { length: 120 }).notNull(), city: varchar("city", { length: 120 }).notNull(), centerLatitudeE6: int("centerLatitudeE6"), centerLongitudeE6: int("centerLongitudeE6"), radiusMeters: int("radiusMeters"), courierBaseMinutes: int("courierBaseMinutes").default(8).notNull(), courierMinutesPerKm: int("courierMinutesPerKm").default(3).notNull(), deliveryFeeMinor: int("deliveryFeeMinor").default(0).notNull(), minimumOrderMinor: int("minimumOrderMinor").default(0).notNull(), isActive: boolean("isActive").default(true).notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [index("service_zones_organisation_index").on(table.organisationId), index("service_zones_city_index").on(table.city, table.isActive)]);
 
 export const businessHours = mysqlTable("business_hours", {
@@ -191,6 +195,7 @@ export const orders = mysqlTable("orders", {
   deliveryAddressLine2: varchar("deliveryAddressLine2", { length: 255 }),
   deliveryCity: varchar("deliveryCity", { length: 120 }).notNull(),
   deliveryInstructions: varchar("deliveryInstructions", { length: 500 }),
+  deliveryAddressId: int("deliveryAddressId"), deliveryLatitudeE6: int("deliveryLatitudeE6"), deliveryLongitudeE6: int("deliveryLongitudeE6"), deliveryZoneId: int("deliveryZoneId"), deliveryDistanceMeters: int("deliveryDistanceMeters"), estimatedCourierMinutes: int("estimatedCourierMinutes"), estimatedTotalMinutes: int("estimatedTotalMinutes"),
   itemSubtotalMinor: int("itemSubtotalMinor").notNull(),
   deliveryFeeMinor: int("deliveryFeeMinor").notNull(),
   serviceFeeMinor: int("serviceFeeMinor").default(0).notNull(),
@@ -263,6 +268,7 @@ export const businessReviewChecklists = mysqlTable("business_review_checklists",
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type AccountProfile = typeof accountProfiles.$inferSelect;
+export type CustomerAddress = typeof customerAddresses.$inferSelect;
 export type WorkspaceMembership = typeof workspaceMemberships.$inferSelect;
 export type WorkspaceApplication = typeof workspaceApplications.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;

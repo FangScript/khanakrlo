@@ -6,20 +6,20 @@ import { catalogueItemImageUploadInput } from "../server/modules/contracts/busin
 import { orderPlaceInput, orderQuoteInput, orderTransitionInput } from "../server/modules/contracts/orders";
 import { canTransitionOrder } from "../shared/order";
 
-const deliveryAddress = { recipientName: "Ayesha Khan", phoneE164: "+923001234567", addressLine1: "F-10 Markaz", city: "Islamabad" };
+const deliveryAddressId = 42;
 
 describe("persisted Order Service contracts", () => {
   it("accepts identifier-only checkout input and rejects untrusted client totals or invalid phone data", () => {
-    const quote = orderQuoteInput.parse({ items: [{ menuItemId: 8, quantity: 2, modifierIds: [4] }], deliveryAddress, paymentMethod: "cod" });
+    const quote = orderQuoteInput.parse({ items: [{ menuItemId: 8, quantity: 2, modifierIds: [4] }], deliveryAddressId, paymentMethod: "cod" });
     expect(quote.items[0]).toEqual({ menuItemId: 8, quantity: 2, modifierIds: [4] });
-    expect(() => orderQuoteInput.parse({ items: [{ menuItemId: 8, quantity: 2, modifierIds: [], totalMinor: 1 }], deliveryAddress })).toThrow();
-    expect(() => orderQuoteInput.parse({ items: [{ menuItemId: 8, quantity: 0, modifierIds: [] }], deliveryAddress })).toThrow();
-    expect(() => orderQuoteInput.parse({ items: [{ menuItemId: 8, quantity: 1, modifierIds: [] }], deliveryAddress: { ...deliveryAddress, phoneE164: "03001234567" } })).toThrow();
+    expect(() => orderQuoteInput.parse({ items: [{ menuItemId: 8, quantity: 2, modifierIds: [], totalMinor: 1 }], deliveryAddressId })).toThrow();
+    expect(() => orderQuoteInput.parse({ items: [{ menuItemId: 8, quantity: 0, modifierIds: [] }], deliveryAddressId })).toThrow();
+    expect(() => orderQuoteInput.parse({ items: [{ menuItemId: 8, quantity: 1, modifierIds: [] }], deliveryAddress: { city: "Islamabad" } })).toThrow();
   });
 
   it("requires a durable idempotency key before a persisted order can be created", () => {
-    expect(orderPlaceInput.parse({ items: [{ menuItemId: 8, quantity: 1, modifierIds: [] }], deliveryAddress, paymentMethod: "cod", idempotencyKey: "customer-checkout-0001" }).idempotencyKey).toBe("customer-checkout-0001");
-    expect(() => orderPlaceInput.parse({ items: [{ menuItemId: 8, quantity: 1, modifierIds: [] }], deliveryAddress, idempotencyKey: "short" })).toThrow();
+    expect(orderPlaceInput.parse({ items: [{ menuItemId: 8, quantity: 1, modifierIds: [] }], deliveryAddressId, paymentMethod: "cod", idempotencyKey: "customer-checkout-0001" }).idempotencyKey).toBe("customer-checkout-0001");
+    expect(() => orderPlaceInput.parse({ items: [{ menuItemId: 8, quantity: 1, modifierIds: [] }], deliveryAddressId, idempotencyKey: "short" })).toThrow();
   });
 
   it("enforces the order status transition policy", () => {

@@ -14,4 +14,6 @@ export const catalogueService = {
   updateModifier: (userId: number, input: Parameters<typeof legacyBusiness.updateCatalogueModifier>[1]) => legacyBusiness.updateCatalogueModifier(userId, input),
   archiveModifier: (userId: number, input: Parameters<typeof legacyBusiness.archiveCatalogueModifier>[1]) => legacyBusiness.archiveCatalogueModifier(userId, input),
   setLiveStatus: (userId: number, status: "live" | "paused") => legacyBusiness.setBusinessLiveStatus(userId, status),
+  getDeliveryZone: (userId: number) => legacyBusiness.getManagedDeliveryZone(userId),
+  updateDeliveryZone: (userId: number, input: Parameters<typeof legacyBusiness.updateManagedDeliveryZone>[1]) => legacyBusiness.updateManagedDeliveryZone(userId, input),
 };

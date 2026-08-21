@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import {
   auditEvents,
@@ -6,6 +6,7 @@ import {
   businessOutlets,
   businessStaffMemberships,
   cloudKitchens,
+  customerAddresses,
   domainOutboxEvents,
   kitchenBrands,
   menuCategories,
@@ -19,6 +20,7 @@ import {
   workspaceMemberships,
 } from "../drizzle/schema";
 import { canTransitionOrder, type OrderStatus } from "../shared/order";
+import { distanceMeters, estimateCourierMinutes } from "../shared/delivery";
 import type { OrderPlaceInput, OrderQuoteInput } from "./modules/contracts/orders";
 import { DomainError } from "./modules/gateway/domain-error";
 import { getDb } from "./db";
@@ -52,6 +54,7 @@ type CheckoutQuote = {
   serviceFeeMinor: number;
   discountMinor: number;
   totalMinor: number;
+  delivery: { addressId: number; recipientName: string; phoneE164: string; addressLine1: string; addressLine2: string | null; city: string; instructions: string | null; latitudeE6: number; longitudeE6: number; zoneId: number; distanceMeters: number | null; estimatedCourierMinutes: number | null; estimatedTotalMinutes: number | null };
 };
 
 function publicOrderId() {
@@ -62,7 +65,9 @@ function eventKey(eventType: string, aggregateId: number) {
   return `${eventType}:${aggregateId}:${crypto.randomUUID()}`;
 }
 
-async function calculateQuote(db: any, input: OrderQuoteInput): Promise<CheckoutQuote> {
+async function calculateQuote(db: any, userId: number, input: OrderQuoteInput): Promise<CheckoutQuote> {
+  const address = (await db.select().from(customerAddresses).where(and(eq(customerAddresses.id, input.deliveryAddressId), eq(customerAddresses.userId, userId), isNull(customerAddresses.archivedAt))).limit(1))[0];
+  if (!address) throw new DomainError("NOT_FOUND", "Choose a saved delivery address before checkout.");
   const [itemRows, modifierRows, categoryRows, outletRows, kitchenRows, brandRows, organisationRows, zoneRows] = await Promise.all([
     db.select().from(menuItems), db.select().from(menuModifiers), db.select().from(menuCategories), db.select().from(businessOutlets), db.select().from(cloudKitchens), db.select().from(kitchenBrands), db.select().from(businessOrganisations), db.select().from(serviceZones),
   ]);
@@ -101,12 +106,19 @@ async function calculateQuote(db: any, input: OrderQuoteInput): Promise<Checkout
   if (resolved.some((line) => line.organisationId !== first.organisationId || line.outletId !== first.outletId || line.kitchenBrandId !== first.kitchenBrandId)) throw new DomainError("VALIDATION", "A checkout can contain dishes from one Restaurant or Cloud Kitchen brand only.");
   const zone = zoneRows.find((candidate: typeof serviceZones.$inferSelect) => candidate.organisationId === first.organisationId && ((first.outletId !== null && candidate.outletId === first.outletId) || (first.kitchenBrandId !== null && candidate.cloudKitchenId === kitchenRows.find((kitchen: typeof cloudKitchens.$inferSelect) => kitchen.organisationId === first.organisationId)?.id)) && candidate.isActive);
   if (!zone) throw new DomainError("CONFLICT", "This Business does not currently have an active delivery zone.");
+  if (zone.city.trim().toLocaleLowerCase() !== address.city.trim().toLocaleLowerCase()) throw new DomainError("CONFLICT", `${address.label} is outside this Business's delivery city.`);
+  const outlet = first.outletId ? outletRows.find((candidate: typeof businessOutlets.$inferSelect) => candidate.id === first.outletId) : null;
+  const origin = zone.centerLatitudeE6 !== null && zone.centerLongitudeE6 !== null ? { latitudeE6: zone.centerLatitudeE6, longitudeE6: zone.centerLongitudeE6 } : outlet?.latitudeE6 !== null && outlet?.latitudeE6 !== undefined && outlet?.longitudeE6 !== null && outlet?.longitudeE6 !== undefined ? { latitudeE6: outlet.latitudeE6, longitudeE6: outlet.longitudeE6 } : null;
+  const deliveryDistance = origin ? distanceMeters(origin, address) : null;
+  if (deliveryDistance !== null && zone.radiusMeters !== null && deliveryDistance > zone.radiusMeters) throw new DomainError("CONFLICT", `${address.label} is outside the ${zone.name} delivery radius.`);
+  const estimatedCourierMinutes = deliveryDistance === null ? null : estimateCourierMinutes(deliveryDistance, zone.courierBaseMinutes, zone.courierMinutesPerKm);
+  const estimatedTotalMinutes = estimatedCourierMinutes === null ? null : estimatedCourierMinutes + Math.max(...resolved.map((line) => line.prepTimeMinutes));
   const itemSubtotalMinor = resolved.reduce((sum, line) => sum + line.lineTotalMinor, 0);
   if (itemSubtotalMinor < zone.minimumOrderMinor) throw new DomainError("VALIDATION", `Minimum order is PKR ${(zone.minimumOrderMinor / 100).toFixed(0)} for this Business.`);
   const deliveryFeeMinor = zone.deliveryFeeMinor;
   const serviceFeeMinor = 0;
   const discountMinor = 0;
-  return { organisationId: first.organisationId!, outletId: first.outletId, kitchenBrandId: first.kitchenBrandId, lines: resolved.map(({ organisationId: _organisationId, outletId: _outletId, kitchenBrandId: _kitchenBrandId, ...line }) => line), itemSubtotalMinor, deliveryFeeMinor, serviceFeeMinor, discountMinor, totalMinor: itemSubtotalMinor + deliveryFeeMinor + serviceFeeMinor - discountMinor };
+  return { organisationId: first.organisationId!, outletId: first.outletId, kitchenBrandId: first.kitchenBrandId, lines: resolved.map(({ organisationId: _organisationId, outletId: _outletId, kitchenBrandId: _kitchenBrandId, ...line }) => line), itemSubtotalMinor, deliveryFeeMinor, serviceFeeMinor, discountMinor, totalMinor: itemSubtotalMinor + deliveryFeeMinor + serviceFeeMinor - discountMinor, delivery: { addressId: address.id, recipientName: address.recipientName, phoneE164: address.phoneE164, addressLine1: address.addressLine1, addressLine2: address.addressLine2, city: address.city, instructions: address.instructions, latitudeE6: address.latitudeE6, longitudeE6: address.longitudeE6, zoneId: zone.id, distanceMeters: deliveryDistance, estimatedCourierMinutes, estimatedTotalMinutes } };
 }
 
 async function ownedBusinessOrganisationId(db: any, userId: number) {
@@ -129,7 +141,7 @@ async function hydrateOrder(db: any, order: typeof orders.$inferSelect) {
 
 export async function quoteOrder(_userId: number, input: OrderQuoteInput) {
   const db = await requireDb();
-  return calculateQuote(db, input);
+  return calculateQuote(db, _userId, input);
 }
 
 export async function placeOrder(userId: number, input: OrderPlaceInput) {
@@ -139,9 +151,9 @@ export async function placeOrder(userId: number, input: OrderPlaceInput) {
   return db.transaction(async (tx) => {
     const existing = (await tx.select().from(orders).where(and(eq(orders.customerUserId, userId), eq(orders.idempotencyKey, input.idempotencyKey))).limit(1))[0];
     if (existing) return hydrateOrder(tx, existing);
-    const quote = await calculateQuote(tx, input);
+    const quote = await calculateQuote(tx, userId, input);
     const publicId = publicOrderId();
-    await tx.insert(orders).values({ publicId, customerUserId: userId, organisationId: quote.organisationId, outletId: quote.outletId, kitchenBrandId: quote.kitchenBrandId, paymentMethod: input.paymentMethod, paymentStatus: "cash_due", deliveryRecipientName: input.deliveryAddress.recipientName, deliveryPhoneE164: input.deliveryAddress.phoneE164, deliveryAddressLine1: input.deliveryAddress.addressLine1, deliveryAddressLine2: input.deliveryAddress.addressLine2 ?? null, deliveryCity: input.deliveryAddress.city, deliveryInstructions: input.deliveryAddress.instructions ?? null, itemSubtotalMinor: quote.itemSubtotalMinor, deliveryFeeMinor: quote.deliveryFeeMinor, serviceFeeMinor: quote.serviceFeeMinor, discountMinor: quote.discountMinor, totalMinor: quote.totalMinor, idempotencyKey: input.idempotencyKey });
+    await tx.insert(orders).values({ publicId, customerUserId: userId, organisationId: quote.organisationId, outletId: quote.outletId, kitchenBrandId: quote.kitchenBrandId, paymentMethod: input.paymentMethod, paymentStatus: "cash_due", deliveryRecipientName: quote.delivery.recipientName, deliveryPhoneE164: quote.delivery.phoneE164, deliveryAddressLine1: quote.delivery.addressLine1, deliveryAddressLine2: quote.delivery.addressLine2, deliveryCity: quote.delivery.city, deliveryInstructions: quote.delivery.instructions, deliveryAddressId: quote.delivery.addressId, deliveryLatitudeE6: quote.delivery.latitudeE6, deliveryLongitudeE6: quote.delivery.longitudeE6, deliveryZoneId: quote.delivery.zoneId, deliveryDistanceMeters: quote.delivery.distanceMeters, estimatedCourierMinutes: quote.delivery.estimatedCourierMinutes, estimatedTotalMinutes: quote.delivery.estimatedTotalMinutes, itemSubtotalMinor: quote.itemSubtotalMinor, deliveryFeeMinor: quote.deliveryFeeMinor, serviceFeeMinor: quote.serviceFeeMinor, discountMinor: quote.discountMinor, totalMinor: quote.totalMinor, idempotencyKey: input.idempotencyKey });
     const order = (await tx.select().from(orders).where(eq(orders.publicId, publicId)).limit(1))[0];
     if (!order) throw new DomainError("INTERNAL", "The order could not be created.");
     for (const line of quote.lines) {

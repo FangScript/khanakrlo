@@ -91,6 +91,12 @@ const config: ExpoConfig = {
     "expo-web-browser",
     "expo-document-picker",
     [
+      "expo-location",
+      {
+        "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to pin delivery addresses and verify Restaurant service zones."
+      }
+    ],
+    [
       "expo-audio",
       {
         microphonePermission: "Allow $(PRODUCT_NAME) to access your microphone.",
