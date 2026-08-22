@@ -17,6 +17,8 @@ import { reviewBusinessInput, reviewCreateInput, reviewModerationInput, reviewOr
 import { reviewService } from "./modules/reviews/service";
 import { notificationPreferenceUpdateInput, supportTicketCreateInput } from "./modules/contracts/support";
 import * as supportService from "./support-service";
+import { adminBusinessEmergencyInput, adminOperationalCaseUpdateInput, adminPhotoReportStatusInput, adminRemittanceCaseInput, adminSupportTicketStatusInput } from "./modules/contracts/admin";
+import * as adminService from "./admin-service";
 
 export const appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -139,6 +141,15 @@ export const appRouter = router({
   }),
   adminReviews: router({
     moderate: protectedProcedure.input(reviewModerationInput).mutation(({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); return callDomain(() => reviewService.moderate(ctx.user.id, input.reviewId, input.visibility, input.note)); }),
+  }),
+  adminOperations: router({
+    queue: protectedProcedure.query(({ ctx }) => callDomain(() => adminService.getAdminOperationalQueue(ctx.user.id))),
+    updateSupportTicket: protectedProcedure.input(adminSupportTicketStatusInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminSupportTicket(ctx.user.id, input))),
+    updatePhotoReport: protectedProcedure.input(adminPhotoReportStatusInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminPhotoReport(ctx.user.id, input))),
+    suspendBusiness: protectedProcedure.input(adminBusinessEmergencyInput).mutation(({ ctx, input }) => callDomain(() => adminService.openBusinessEmergencyCase(ctx.user.id, input))),
+    restoreBusiness: protectedProcedure.input(businessEmergencyRestoreInput).mutation(({ ctx, input }) => callDomain(() => adminService.restoreBusinessEmergency(ctx.user.id, input.applicationId))),
+    openRemittanceReview: protectedProcedure.input(adminRemittanceCaseInput).mutation(({ ctx, input }) => callDomain(() => adminService.openRemittanceReviewCase(ctx.user.id, input))),
+    updateCase: protectedProcedure.input(adminOperationalCaseUpdateInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminOperationalCase(ctx.user.id, input))),
   }),
 
 });

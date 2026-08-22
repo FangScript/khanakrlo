@@ -397,6 +397,16 @@ export const riderCashSettlementReceipts = mysqlTable("rider_cash_settlement_rec
   id: int("id").autoincrement().primaryKey(), riderUserId: int("riderUserId").notNull(), riderCashAccountId: int("riderCashAccountId").notNull(), cashAccountEntryId: int("cashAccountEntryId").notNull(), receiptCode: varchar("receiptCode", { length: 80 }).notNull(), amountMinor: int("amountMinor").notNull(), balanceAfterMinor: int("balanceAfterMinor").notNull(), reconciledOrderIdsJson: text("reconciledOrderIdsJson").notNull(), issuedAt: timestamp("issuedAt").defaultNow().notNull(),
 }, (table) => [uniqueIndex("rider_cash_receipts_code_unique").on(table.receiptCode), uniqueIndex("rider_cash_receipts_entry_unique").on(table.cashAccountEntryId), index("rider_cash_receipts_rider_issued_index").on(table.riderUserId, table.issuedAt)]);
 
+/** Internal staff permissions refine the existing administrator identity; absent legacy assignments retain senior operations access for the existing platform admin. */
+export const adminStaffRoles = mysqlTable("admin_staff_roles", {
+  id: int("id").autoincrement().primaryKey(), userId: int("userId").notNull(), staffRole: mysqlEnum("staffRole", ["support_agent", "moderation_agent", "finance_operator", "senior_operations"]).notNull(), status: mysqlEnum("status", ["active", "inactive"]).default("active").notNull(), grantedByUserId: int("grantedByUserId"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [uniqueIndex("admin_staff_roles_user_unique").on(table.userId), index("admin_staff_roles_role_status_index").on(table.staffRole, table.status)]);
+
+/** Structured internal cases attach Admin workflow state to emergency Business action and Rider remittance review without modifying immutable source ledgers. */
+export const adminOperationalCases = mysqlTable("admin_operational_cases", {
+  id: int("id").autoincrement().primaryKey(), caseType: mysqlEnum("caseType", ["business_emergency", "rider_remittance"]).notNull(), targetId: int("targetId").notNull(), status: mysqlEnum("status", ["open", "in_progress", "resolved", "dismissed"]).default("open").notNull(), priority: mysqlEnum("priority", ["normal", "high", "critical"]).default("normal").notNull(), reason: varchar("reason", { length: 500 }).notNull(), internalNote: text("internalNote"), assignedAdminUserId: int("assignedAdminUserId"), openedByUserId: int("openedByUserId").notNull(), resolvedByUserId: int("resolvedByUserId"), reviewDueAt: timestamp("reviewDueAt"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("admin_operational_cases_status_created_index").on(table.status, table.createdAt), index("admin_operational_cases_target_index").on(table.caseType, table.targetId), index("admin_operational_cases_assignee_index").on(table.assignedAdminUserId, table.status)]);
+
 /** Restaurant KDS acknowledgement is distinct from acceptance so new-order alerts can be safely dismissed without altering the order state. */
 export const orderKitchenAcknowledgements = mysqlTable("order_kitchen_acknowledgements", {
   id: int("id").autoincrement().primaryKey(),

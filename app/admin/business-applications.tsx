@@ -10,15 +10,15 @@ type BusinessRow = { application: { id: number; businessType: "restaurant" | "cl
 
 export default function AdminBusinessApplicationsScreen() {
   const businessesQuery = trpc.adminBusiness.listBusinesses.useQuery(undefined, { retry: false });
-  const suspend = trpc.adminBusiness.suspend.useMutation({ onSuccess: () => void businessesQuery.refetch() });
-  const restore = trpc.adminBusiness.restore.useMutation({ onSuccess: () => void businessesQuery.refetch() });
+  const suspend = trpc.adminOperations.suspendBusiness.useMutation({ onSuccess: () => void businessesQuery.refetch() });
+  const restore = trpc.adminOperations.restoreBusiness.useMutation({ onSuccess: () => void businessesQuery.refetch() });
   const [selected, setSelected] = useState<BusinessRow | null>(null);
   const [reason, setReason] = useState("");
   const businesses = (businessesQuery.data ?? []) as BusinessRow[];
 
   async function suspendSelected() {
     if (!selected) return;
-    try { await suspend.mutateAsync({ applicationId: selected.application.id, reason }); setSelected(null); setReason(""); Alert.alert("Business suspended", "This emergency action stopped public Business access. It was not an approval decision."); } catch (error) { Alert.alert("Could not suspend Business", error instanceof Error ? error.message : "Try again."); }
+    try { await suspend.mutateAsync({ applicationId: selected.application.id, reason, priority: "high" }); setSelected(null); setReason(""); Alert.alert("Business suspended", "This emergency action opened an auditable case and stopped public Business access. It was not an approval decision."); } catch (error) { Alert.alert("Could not suspend Business", error instanceof Error ? error.message : "Try again."); }
   }
   async function restoreBusiness(applicationId: number) {
     try { await restore.mutateAsync({ applicationId }); Alert.alert("Business restored", "The owner can access the workspace again. The Business returns paused and controls its own publishing."); } catch (error) { Alert.alert("Could not restore Business", error instanceof Error ? error.message : "Try again."); }

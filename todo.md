@@ -160,3 +160,9 @@
 - [x] Generate and retain Rider-owned settlement receipt records for controlled remittances.
 - [x] Add native PDF receipt download and share access for Rider settlement records.
 - [x] Add deterministic validation for history filters, receipt ownership, and receipt download behavior.
+- [x] Add protected Admin staff-role checks and audit-scoped operational access.
+- [x] Build an Admin operational queue for support tickets, review-photo reports, and emergency Business cases.
+- [x] Add structured emergency Business suspension and restoration cases without any onboarding approval controls.
+- [x] Add Admin Rider remittance reconciliation visibility with immutable receipt and ledger context.
+- [x] Add provider-ready contracts for AI review, payments/refunds, fiscal reporting, and global configuration without activating providers.
+- [x] Add deterministic validation for Admin RBAC, privacy boundaries, operational queues, suspension, and remittance review access.
