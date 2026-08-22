@@ -117,3 +117,7 @@
 - [x] Replace sample ratings with server-calculated live rating aggregates and transparent discovery ranking.
 - [x] Add Customer review submission/history and Business feedback-management screens.
 - [x] Add deterministic review eligibility, ownership, moderation, aggregation, and ranking validation.
+- [x] Add secure review-photo storage with verified-order ownership, image validation, and bounded attachment limits.
+- [x] Add customer-selected review-photo privacy controls for public, Business-only, and private-to-platform audiences.
+- [x] Add customer photo selection/upload and audience-appropriate review-photo displays.
+- [x] Add deterministic validation for review-photo ownership, privacy filtering, file constraints, and moderation behavior.

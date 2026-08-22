@@ -29,7 +29,7 @@ describe("verified customer reviews and reputation contracts", () => {
   it("keeps private feedback Business-only while public discovery uses published reviews and real aggregates", () => {
     const source = projectFile("server/review-service.ts");
     const discovery = projectFile("server/business-service.ts");
-    expect(source).toContain("...(includePrivate ? { privateFeedback");
+    expect(source).toContain("...(audience !== \"public\" ? { privateFeedback");
     expect(source).toContain('eq(orderReviews.visibility, "published")');
     expect(discovery).toContain("getOrganisationReputations");
     expect(discovery).toContain("rankingScoreMilli");

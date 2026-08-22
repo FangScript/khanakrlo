@@ -13,7 +13,7 @@ import { orderService } from "./modules/orders/service";
 import { codCollectionConfirmInput, orderByIdInput, orderPlaceInput, orderQuoteInput, orderTransitionInput, riderAssignmentInput, riderLocationUpdateInput, riderOrderTransitionInput } from "./modules/contracts/orders";
 import { addressService } from "./modules/addresses/service";
 import { customerAddressCreateInput, customerAddressIdInput, customerAddressUpdateInput } from "./modules/contracts/addresses";
-import { reviewBusinessInput, reviewCreateInput, reviewModerationInput, reviewOrderInput, reviewReplyInput } from "./modules/contracts/reviews";
+import { reviewBusinessInput, reviewCreateInput, reviewModerationInput, reviewOrderInput, reviewPhotoUploadInput, reviewReplyInput } from "./modules/contracts/reviews";
 import { reviewService } from "./modules/reviews/service";
 
 export const appRouter = router({
@@ -81,6 +81,7 @@ export const appRouter = router({
   }),
   reviews: router({
     create: protectedProcedure.input(reviewCreateInput).mutation(({ ctx, input }) => callDomain(() => reviewService.create(ctx.user.id, input))),
+    uploadPhoto: protectedProcedure.input(reviewPhotoUploadInput).mutation(({ ctx, input }) => callDomain(() => reviewService.uploadPhoto(ctx.user.id, input))),
     mineForOrder: protectedProcedure.input(reviewOrderInput).query(({ ctx, input }) => callDomain(() => reviewService.mineForOrder(ctx.user.id, input.orderId))),
     publicByBusiness: publicProcedure.input(reviewBusinessInput).query(({ input }) => callDomain(() => reviewService.publicByBusiness(input.businessId))),
   }),

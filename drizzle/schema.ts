@@ -331,6 +331,21 @@ export const orderReviews = mysqlTable("order_reviews", {
   index("order_reviews_customer_created_index").on(table.customerUserId, table.createdAt),
 ]);
 
+/** Images attached to verified reviews are stored separately so each image can carry its own privacy audience. */
+export const reviewPhotos = mysqlTable("review_photos", {
+  id: int("id").autoincrement().primaryKey(),
+  reviewId: int("reviewId").notNull(),
+  customerUserId: int("customerUserId").notNull(),
+  storageKey: varchar("storageKey", { length: 500 }).notNull(),
+  mimeType: varchar("mimeType", { length: 40 }).notNull(),
+  byteSize: int("byteSize").notNull(),
+  privacy: mysqlEnum("privacy", ["public", "business_only", "platform_only"]).default("business_only").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("review_photos_review_privacy_index").on(table.reviewId, table.privacy, table.createdAt),
+  index("review_photos_customer_index").on(table.customerUserId, table.createdAt),
+]);
+
 /** One authoritative manual-dispatch assignment per order. Assignment is immutable for customer audit; reassignment is deliberately deferred. */
 export const riderAssignments = mysqlTable("rider_assignments", {
   id: int("id").autoincrement().primaryKey(),
