@@ -92,5 +92,6 @@
 - [x] Add Rider foreground location sharing and customer order-tracking display with location freshness safeguards.
 - [x] Establish 12–15% Business commission policy, immutable order commission snapshots, COD collection controls, and settlement read models.
 - [ ] Replace preview OTP with a provider-ready, rate-limited Pakistan mobile authentication foundation and secure sessions.
+- [ ] Activate SendPK OTP delivery only after approved sender/template credentials are supplied for pilot launch.
 - [ ] Add guest COD checkout, ownership-safe guest order tracking, location-aware discovery/search, and quote improvements.
 - [ ] Add order-linked support tickets, device notification preferences, and durable outbox-driven notification delivery foundations.
