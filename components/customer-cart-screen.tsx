@@ -11,7 +11,7 @@ import { useKhanaStore } from "@/lib/khana-store";
 const deliveryFee = 89;
 const serviceFee = 29;
 
-export default function CartScreen() {
+export function CustomerCartScreen({ tabMode = false }: { tabMode?: boolean }) {
   const { cart, changeQuantity } = useKhanaStore();
   const [promo, setPromo] = useState("");
   const [promoApplied, setPromoApplied] = useState(false);
@@ -20,13 +20,13 @@ export default function CartScreen() {
   const total = Math.max(0, subtotal + deliveryFee + serviceFee - discount);
 
   if (cart.length === 0) {
-    return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.screen}><ScreenBack title="Your cart" /><EmptyCart /></View></ScreenContainer>;
+    return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.screen}>{tabMode ? <Text style={styles.tabTitle}>Your cart</Text> : <ScreenBack title="Your cart" />}<EmptyCart /></View></ScreenContainer>;
   }
 
   return (
     <ScreenContainer edges={["top", "bottom", "left", "right"]}>
       <View style={styles.screen}>
-        <ScreenBack title="Your cart" />
+        {tabMode ? <Text style={styles.tabTitle}>Your cart</Text> : <ScreenBack title="Your cart" />}
         <FlatList
           data={cart}
           keyExtractor={(item) => item.id}
@@ -73,6 +73,8 @@ export default function CartScreen() {
   );
 }
 
+export default function CartScreen() { return <CustomerCartScreen />; }
+
 function BillRow({ label, value, total = false, positive = false }: { label: string; value: string; total?: boolean; positive?: boolean }) {
   return <View style={styles.billRow}><Text style={[styles.billLabel, total && styles.billLabelTotal, positive && styles.positive]}>{label}</Text><Text style={[styles.billValue, total && styles.billValueTotal, positive && styles.positive]}>{value}</Text></View>;
 }
@@ -83,6 +85,7 @@ function EmptyCart() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#FFF8ED", paddingHorizontal: 16, paddingTop: 6 },
+  tabTitle: { color: "#17251D", fontSize: 25, lineHeight: 31, fontWeight: "900", paddingTop: 14, paddingBottom: 16 },
   listContent: { paddingBottom: 25 },
   restaurantHint: { color: "#6C7A70", fontSize: 12, lineHeight: 16, fontWeight: "700", marginBottom: 10 },
   cartLine: { minHeight: 100, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E7E8E2", borderRadius: 18, padding: 10, flexDirection: "row", gap: 10, marginBottom: 9 },

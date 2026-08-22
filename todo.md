@@ -95,3 +95,4 @@
 - [ ] Activate SendPK OTP delivery only after approved sender/template credentials are supplied for pilot launch.
 - [ ] Add guest COD checkout, ownership-safe guest order tracking, location-aware discovery/search, and quote improvements.
 - [ ] Add order-linked support tickets, device notification preferences, and durable outbox-driven notification delivery foundations.
+- [x] Add a dedicated Customer Cart tab alongside Home, Orders, and Profile using the persisted cart and existing checkout flow.
