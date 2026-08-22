@@ -13,6 +13,27 @@ describe("Rider Cash Account history screen", () => {
     expect(screen).toContain("labelByType");
   });
 
+  it("provides date and transaction-type filters plus a resettable empty state", () => {
+    const screen = source("app/rider/cash-account.tsx");
+    expect(screen).toContain("fromDate");
+    expect(screen).toContain("toDate");
+    expect(screen).toContain("entryTypes");
+    expect(screen).toContain("Apply filters");
+    expect(screen).toContain("Clear filters");
+    expect(screen).toContain("appliedFilter");
+  });
+
+  it("offers protected settlement receipt PDF downloads from the Rider-owned receipt list", () => {
+    const screen = source("app/rider/cash-account.tsx");
+    const receiptUtility = source("lib/rider-settlement-receipt.ts");
+    expect(screen).toContain("riderSettlementReceipt.fetch");
+    expect(screen).toContain("Settlement receipts");
+    expect(screen).toContain("handleReceiptDownload");
+    expect(receiptUtility).toContain("Print.printToFileAsync");
+    expect(receiptUtility).toContain("Sharing.shareAsync");
+    expect(receiptUtility).toContain("buildSettlementReceiptHtml");
+  });
+
   it("connects the Rider profile Cash account row to the complete history route", () => {
     const profile = source("app/rider/profile.tsx");
     expect(profile).toContain('router.push("/rider/cash-account")');

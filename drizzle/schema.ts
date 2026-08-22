@@ -392,6 +392,11 @@ export const riderCashAccountEntries = mysqlTable("rider_cash_account_entries", 
   id: int("id").autoincrement().primaryKey(), riderCashAccountId: int("riderCashAccountId").notNull(), riderUserId: int("riderUserId").notNull(), orderId: int("orderId"), entryType: mysqlEnum("entryType", ["commission_reserved", "commission_released", "cash_collected", "cash_variance", "settlement_adjustment"]).notNull(), amountMinor: int("amountMinor").notNull(), balanceAfterMinor: int("balanceAfterMinor").notNull(), reference: varchar("reference", { length: 160 }).notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [uniqueIndex("rider_cash_entries_order_type_unique").on(table.orderId, table.entryType), index("rider_cash_entries_rider_created_index").on(table.riderUserId, table.createdAt)]);
 
+/** Immutable Rider remittance receipt data. A receipt is created with its settlement ledger entry and is retrievable only by its Rider owner. */
+export const riderCashSettlementReceipts = mysqlTable("rider_cash_settlement_receipts", {
+  id: int("id").autoincrement().primaryKey(), riderUserId: int("riderUserId").notNull(), riderCashAccountId: int("riderCashAccountId").notNull(), cashAccountEntryId: int("cashAccountEntryId").notNull(), receiptCode: varchar("receiptCode", { length: 80 }).notNull(), amountMinor: int("amountMinor").notNull(), balanceAfterMinor: int("balanceAfterMinor").notNull(), reconciledOrderIdsJson: text("reconciledOrderIdsJson").notNull(), issuedAt: timestamp("issuedAt").defaultNow().notNull(),
+}, (table) => [uniqueIndex("rider_cash_receipts_code_unique").on(table.receiptCode), uniqueIndex("rider_cash_receipts_entry_unique").on(table.cashAccountEntryId), index("rider_cash_receipts_rider_issued_index").on(table.riderUserId, table.issuedAt)]);
+
 /** Restaurant KDS acknowledgement is distinct from acceptance so new-order alerts can be safely dismissed without altering the order state. */
 export const orderKitchenAcknowledgements = mysqlTable("order_kitchen_acknowledgements", {
   id: int("id").autoincrement().primaryKey(),

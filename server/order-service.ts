@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 
 import {
   accountProfiles,
@@ -25,6 +25,7 @@ import {
   riderAvailability,
   riderCashAccounts,
   riderCashAccountEntries,
+  riderCashSettlementReceipts,
   riderLocationUpdates,
   serviceZones,
   settlementLedgerEntries,
@@ -33,7 +34,7 @@ import {
 import { canTransitionOrder, type OrderStatus } from "../shared/order";
 import { distanceMeters, estimateCourierMinutes } from "../shared/delivery";
 import { isBusinessOpenAt } from "../shared/business-hours";
-import type { OrderPlaceInput, OrderQuoteInput } from "./modules/contracts/orders";
+import type { OrderPlaceInput, OrderQuoteInput, RiderCashHistoryFilterInput } from "./modules/contracts/orders";
 import { DomainError } from "./modules/gateway/domain-error";
 import { getDb } from "./db";
 
@@ -294,12 +295,25 @@ async function reserveRiderCommission(tx: any, riderUserId: number, order: typeo
   return { accountId: account.id, commissionMinor, balanceMinor: nextBalance, riderCashThresholdMinor };
 }
 
-export async function getRiderCashAccount(userId: number) {
+export async function getRiderCashAccount(userId: number, filter?: RiderCashHistoryFilterInput) {
   const db = await requireDb();
   await requireActiveRider(db, userId);
   const account = (await db.select().from(riderCashAccounts).where(eq(riderCashAccounts.riderUserId, userId)).limit(1))[0] ?? { riderUserId: userId, balanceMinor: 0, status: "active" as const, updatedAt: null };
-  const entries = account.id ? await db.select().from(riderCashAccountEntries).where(eq(riderCashAccountEntries.riderUserId, userId)).orderBy(desc(riderCashAccountEntries.createdAt)).limit(30) : [];
-  return { account, entries };
+  const filters = [eq(riderCashAccountEntries.riderUserId, userId)];
+  if (filter?.fromDate) filters.push(gte(riderCashAccountEntries.createdAt, new Date(filter.fromDate)));
+  if (filter?.toDate) filters.push(lte(riderCashAccountEntries.createdAt, new Date(filter.toDate)));
+  if (filter?.entryTypes?.length) filters.push(inArray(riderCashAccountEntries.entryType, filter.entryTypes));
+  const entries = account.id ? await db.select().from(riderCashAccountEntries).where(and(...filters)).orderBy(desc(riderCashAccountEntries.createdAt)).limit(100) : [];
+  const receipts = account.id ? await db.select().from(riderCashSettlementReceipts).where(eq(riderCashSettlementReceipts.riderUserId, userId)).orderBy(desc(riderCashSettlementReceipts.issuedAt)).limit(50) : [];
+  return { account, entries, receipts };
+}
+
+export async function getRiderSettlementReceipt(userId: number, receiptId: number) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  const receipt = (await db.select().from(riderCashSettlementReceipts).where(and(eq(riderCashSettlementReceipts.id, receiptId), eq(riderCashSettlementReceipts.riderUserId, userId))).limit(1))[0];
+  if (!receipt) throw new DomainError("NOT_FOUND", "Settlement receipt not found.");
+  return { ...receipt, reconciledOrderIds: JSON.parse(receipt.reconciledOrderIdsJson) as number[] };
 }
 
 export async function remitRiderCash(userId: number, amountMinor: number) {
@@ -316,11 +330,17 @@ export async function remitRiderCash(userId: number, amountMinor: number) {
     if (amountMinor !== outstandingMinor) throw new DomainError("VALIDATION", "Remittance must match the server-calculated outstanding COD custody amount.");
     const now = new Date(); const nextBalance = account.balanceMinor - amountMinor;
     await tx.update(riderCashAccounts).set({ balanceMinor: nextBalance, updatedAt: now }).where(eq(riderCashAccounts.id, account.id));
-    await tx.insert(riderCashAccountEntries).values({ riderCashAccountId: account.id, riderUserId: userId, entryType: "settlement_adjustment", amountMinor: -amountMinor, balanceAfterMinor: nextBalance, reference: `remittance:${now.toISOString()}` });
-    await tx.update(orders).set({ settlementStatus: "reconciled", updatedAt: now }).where(inArray(orders.id, unsettled.map((order: typeof orders.$inferSelect) => order.id)));
-    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_cash_account", entityId: String(account.id), action: "rider_remittance_submitted", nextValue: JSON.stringify({ amountMinor, orderIds: unsettled.map((order: typeof orders.$inferSelect) => order.id) }) });
-    await tx.insert(domainOutboxEvents).values({ domain: "settlement", eventType: "rider.remittance_submitted", aggregateType: "rider", aggregateId: String(userId), payload: JSON.stringify({ riderUserId: userId, amountMinor, orderIds: unsettled.map((order: typeof orders.$inferSelect) => order.id) }), deduplicationKey: eventKey("rider.remittance_submitted", userId) });
-    return { amountMinor, reconciledOrderIds: unsettled.map((order: typeof orders.$inferSelect) => order.id), balanceMinor: nextBalance };
+    const remittanceReference = `remittance:${now.toISOString()}`;
+    const entryResult = await tx.insert(riderCashAccountEntries).values({ riderCashAccountId: account.id, riderUserId: userId, entryType: "settlement_adjustment", amountMinor: -amountMinor, balanceAfterMinor: nextBalance, reference: remittanceReference });
+    const cashAccountEntryId = Number(entryResult[0].insertId);
+    const reconciledOrderIds = unsettled.map((order: typeof orders.$inferSelect) => order.id);
+    const receiptCode = `KK-SR-${userId}-${now.getTime()}-${cashAccountEntryId}`;
+    const receiptResult = await tx.insert(riderCashSettlementReceipts).values({ riderUserId: userId, riderCashAccountId: account.id, cashAccountEntryId, receiptCode, amountMinor, balanceAfterMinor: nextBalance, reconciledOrderIdsJson: JSON.stringify(reconciledOrderIds), issuedAt: now });
+    const receiptId = Number(receiptResult[0].insertId);
+    await tx.update(orders).set({ settlementStatus: "reconciled", updatedAt: now }).where(inArray(orders.id, reconciledOrderIds));
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_cash_account", entityId: String(account.id), action: "rider_remittance_submitted", nextValue: JSON.stringify({ amountMinor, orderIds: reconciledOrderIds, receiptCode }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "settlement", eventType: "rider.remittance_submitted", aggregateType: "rider", aggregateId: String(userId), payload: JSON.stringify({ riderUserId: userId, amountMinor, orderIds: reconciledOrderIds, receiptCode }), deduplicationKey: eventKey("rider.remittance_submitted", userId) });
+    return { amountMinor, reconciledOrderIds, balanceMinor: nextBalance, receiptId, receiptCode };
   });
 }
 

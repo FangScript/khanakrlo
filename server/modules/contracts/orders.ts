@@ -25,6 +25,15 @@ export const kitchenOrderAcknowledgementInput = z.object({ orderId: z.number().i
 export const riderOfferDecisionInput = z.object({ orderId: z.number().int().positive(), decision: z.enum(["accept", "decline"]), note: z.string().trim().max(300).optional() }).strict();
 export const riderAvailabilityInput = z.object({ status: z.enum(["online", "offline"]) }).strict();
 export const riderCashRemittanceInput = z.object({ amountMinor: z.number().int().positive().max(10_000_000) }).strict();
+export const RIDER_CASH_ENTRY_TYPES = ["commission_reserved", "commission_released", "cash_collected", "cash_variance", "settlement_adjustment"] as const;
+export const riderCashHistoryFilterInput = z.object({
+  fromDate: z.string().datetime({ offset: true }).optional(),
+  toDate: z.string().datetime({ offset: true }).optional(),
+  entryTypes: z.array(z.enum(RIDER_CASH_ENTRY_TYPES)).max(RIDER_CASH_ENTRY_TYPES.length).optional(),
+}).strict().superRefine((input, context) => {
+  if (input.fromDate && input.toDate && new Date(input.fromDate) > new Date(input.toDate)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["toDate"], message: "The end date must be on or after the start date." });
+});
+export const riderSettlementReceiptInput = z.object({ receiptId: z.number().int().positive() }).strict();
 export const riderOrderTransitionInput = z.object({ orderId: z.number().int().positive(), toStatus: z.enum(["picked_up", "delivered"]), note: z.string().trim().max(500).optional() }).strict();
 export const codCollectionConfirmInput = z.object({
   orderId: z.number().int().positive(),
@@ -38,3 +47,4 @@ export const riderLocationUpdateInput = z.object({ orderId: z.number().int().pos
 export type OrderQuoteInput = z.infer<typeof orderQuoteInput>;
 export type OrderPlaceInput = z.infer<typeof orderPlaceInput>;
 export type RiderAssignmentInput = z.infer<typeof riderAssignmentInput>;
+export type RiderCashHistoryFilterInput = z.infer<typeof riderCashHistoryFilterInput>;

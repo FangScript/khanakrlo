@@ -155,3 +155,8 @@
 - [x] Add a dedicated Rider Cash Account screen with complete immutable transaction history, balance, custody, and remittance context.
 - [x] Add a Rider profile navigation entry for the complete Cash Account history screen.
 - [x] Add deterministic validation for Rider Cash Account history screen data binding and navigation.
+- [x] Add server-authoritative date and transaction-type filtering for Rider Cash Account history.
+- [x] Add Rider Cash Account filter controls with clear empty and reset states.
+- [x] Generate and retain Rider-owned settlement receipt records for controlled remittances.
+- [x] Add native PDF receipt download and share access for Rider settlement records.
+- [x] Add deterministic validation for history filters, receipt ownership, and receipt download behavior.
