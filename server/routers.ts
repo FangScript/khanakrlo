@@ -10,11 +10,13 @@ import { discoveryService } from "./modules/discovery/service";
 import { callDomain } from "./modules/gateway/domain-error";
 import { identityWorkspaceService } from "./modules/identity-workspace/service";
 import { orderService } from "./modules/orders/service";
-import { codCollectionConfirmInput, orderByIdInput, orderPlaceInput, orderQuoteInput, orderTransitionInput, riderAssignmentInput, riderLocationUpdateInput, riderOrderTransitionInput } from "./modules/contracts/orders";
+import { codCollectionConfirmInput, kitchenOrderAcknowledgementInput, orderByIdInput, orderPlaceInput, orderQuoteInput, orderTransitionInput, riderAssignmentInput, riderLocationUpdateInput, riderOfferDecisionInput, riderOrderTransitionInput } from "./modules/contracts/orders";
 import { addressService } from "./modules/addresses/service";
 import { customerAddressCreateInput, customerAddressIdInput, customerAddressUpdateInput } from "./modules/contracts/addresses";
 import { reviewBusinessInput, reviewCreateInput, reviewModerationInput, reviewOrderInput, reviewPhotoRemoveInput, reviewPhotoReportInput, reviewPhotoUploadInput, reviewPhotoPrivacyUpdateInput, reviewReplyInput } from "./modules/contracts/reviews";
 import { reviewService } from "./modules/reviews/service";
+import { notificationPreferenceUpdateInput, supportTicketCreateInput } from "./modules/contracts/support";
+import * as supportService from "./support-service";
 
 export const appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -100,8 +102,11 @@ export const appRouter = router({
     byId: protectedProcedure.input(orderByIdInput).query(({ ctx, input }) => callDomain(() => orderService.byId(ctx.user.id, input.orderId))),
     businessQueue: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.businessQueue(ctx.user.id))),
     transition: protectedProcedure.input(orderTransitionInput).mutation(({ ctx, input }) => callDomain(() => orderService.transition(ctx.user.id, input))),
+    acknowledgeKitchenOrder: protectedProcedure.input(kitchenOrderAcknowledgementInput).mutation(({ ctx, input }) => callDomain(() => orderService.acknowledgeKitchenOrder(ctx.user.id, input.orderId))),
     availableRiders: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.availableRiders(ctx.user.id))),
     assignRider: protectedProcedure.input(riderAssignmentInput).mutation(({ ctx, input }) => callDomain(() => orderService.assignRider(ctx.user.id, input))),
+    riderOffers: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderOffers(ctx.user.id))),
+    respondToRiderOffer: protectedProcedure.input(riderOfferDecisionInput).mutation(({ ctx, input }) => callDomain(() => orderService.respondToRiderOffer(ctx.user.id, input))),
     riderQueue: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderQueue(ctx.user.id))),
     riderTransition: protectedProcedure.input(riderOrderTransitionInput).mutation(({ ctx, input }) => callDomain(() => orderService.riderTransition(ctx.user.id, input))),
     confirmCodCollection: protectedProcedure.input(codCollectionConfirmInput).mutation(({ ctx, input }) => callDomain(() => orderService.confirmCodCollection(ctx.user.id, input))),
@@ -113,6 +118,12 @@ export const appRouter = router({
     update: protectedProcedure.input(customerAddressUpdateInput).mutation(({ ctx, input }) => callDomain(() => addressService.update(ctx.user.id, input))),
     setDefault: protectedProcedure.input(customerAddressIdInput).mutation(({ ctx, input }) => callDomain(() => addressService.setDefault(ctx.user.id, input.addressId))),
     archive: protectedProcedure.input(customerAddressIdInput).mutation(({ ctx, input }) => callDomain(() => addressService.archive(ctx.user.id, input.addressId))),
+  }),
+  support: router({
+    mine: protectedProcedure.query(({ ctx }) => callDomain(() => supportService.listSupportTickets(ctx.user.id))),
+    create: protectedProcedure.input(supportTicketCreateInput).mutation(({ ctx, input }) => callDomain(() => supportService.createSupportTicket(ctx.user.id, input))),
+    notificationPreferences: protectedProcedure.query(({ ctx }) => callDomain(() => supportService.getNotificationPreferences(ctx.user.id))),
+    updateNotificationPreferences: protectedProcedure.input(notificationPreferenceUpdateInput).mutation(({ ctx, input }) => callDomain(() => supportService.updateNotificationPreferences(ctx.user.id, input))),
   }),
 
   adminBusiness: router({

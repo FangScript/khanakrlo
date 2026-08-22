@@ -371,9 +371,28 @@ export const riderAssignments = mysqlTable("rider_assignments", {
   riderUserId: int("riderUserId").notNull(),
   assignedByUserId: int("assignedByUserId").notNull(),
   assignedAt: timestamp("assignedAt").defaultNow().notNull(),
+  offerStatus: mysqlEnum("offerStatus", ["offered", "accepted", "declined", "expired"]).default("accepted").notNull(),
+  offerExpiresAt: timestamp("offerExpiresAt"),
+  respondedAt: timestamp("respondedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [uniqueIndex("rider_assignments_order_unique").on(table.orderId), index("rider_assignments_rider_status_index").on(table.riderUserId, table.assignedAt)]);
+
+/** Restaurant KDS acknowledgement is distinct from acceptance so new-order alerts can be safely dismissed without altering the order state. */
+export const orderKitchenAcknowledgements = mysqlTable("order_kitchen_acknowledgements", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  acknowledgedByUserId: int("acknowledgedByUserId").notNull(),
+  acknowledgedAt: timestamp("acknowledgedAt").defaultNow().notNull(),
+}, (table) => [uniqueIndex("order_kitchen_acknowledgements_order_unique").on(table.orderId)]);
+
+export const supportTickets = mysqlTable("support_tickets", {
+  id: int("id").autoincrement().primaryKey(), customerUserId: int("customerUserId").notNull(), orderId: int("orderId"), category: mysqlEnum("category", ["order", "delivery", "payment", "account", "other"]).notNull(), subject: varchar("subject", { length: 140 }).notNull(), message: varchar("message", { length: 1500 }).notNull(), status: mysqlEnum("status", ["open", "in_progress", "resolved", "closed"]).default("open").notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("support_tickets_customer_created_index").on(table.customerUserId, table.createdAt), index("support_tickets_status_created_index").on(table.status, table.createdAt)]);
+
+export const notificationPreferences = mysqlTable("notification_preferences", {
+  id: int("id").autoincrement().primaryKey(), userId: int("userId").notNull(), orderUpdatesEnabled: boolean("orderUpdatesEnabled").default(true).notNull(), supportUpdatesEnabled: boolean("supportUpdatesEnabled").default(true).notNull(), promotionsEnabled: boolean("promotionsEnabled").default(false).notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [uniqueIndex("notification_preferences_user_unique").on(table.userId)]);
 
 /** Append-only, foreground rider position updates; only the freshest active-delivery point is shown to a customer. */
 export const riderLocationUpdates = mysqlTable("rider_location_updates", {

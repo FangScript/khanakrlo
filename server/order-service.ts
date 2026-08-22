@@ -18,6 +18,7 @@ import {
   menuModifiers,
   orderItemModifiers,
   orderItems,
+  orderKitchenAcknowledgements,
   orders,
   orderStatusHistory,
   riderAssignments,
@@ -253,21 +254,70 @@ export async function assignRiderToOrder(userId: number, input: { orderId: numbe
     const rider = (await tx.select().from(workspaceMemberships).where(and(eq(workspaceMemberships.userId, input.riderUserId), eq(workspaceMemberships.workspaceType, "rider"), eq(workspaceMemberships.status, "active"))).limit(1))[0];
     if (!rider) throw new DomainError("VALIDATION", "Choose an approved active Rider.");
     const existing = (await tx.select().from(riderAssignments).where(eq(riderAssignments.orderId, order.id)).limit(1))[0];
-    if (existing) throw new DomainError("CONFLICT", "This order has already been assigned.");
+    if (existing && existing.offerStatus === "accepted") throw new DomainError("CONFLICT", "This order has already been assigned.");
     const now = new Date();
-    await tx.insert(riderAssignments).values({ orderId: order.id, riderUserId: input.riderUserId, assignedByUserId: userId, assignedAt: now });
-    await tx.update(orders).set({ status: "assigned", updatedAt: now }).where(eq(orders.id, order.id));
-    await tx.insert(orderStatusHistory).values({ orderId: order.id, fromStatus: "ready_for_pickup", toStatus: "assigned", actorUserId: userId, note: "Rider assigned by Restaurant dispatch" });
-    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_assignment", entityId: String(order.id), action: "rider_assigned", nextValue: JSON.stringify({ riderUserId: input.riderUserId, orderId: order.id }) });
-    await tx.insert(domainOutboxEvents).values({ domain: "orders", eventType: "order.assigned", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, organisationId, riderUserId: input.riderUserId }), deduplicationKey: eventKey("order.assigned", order.id) });
-    return hydrateOrder(tx, { ...order, status: "assigned", updatedAt: now });
+    const offerExpiresAt = new Date(now.getTime() + 5 * 60_000);
+    if (existing) await tx.update(riderAssignments).set({ riderUserId: input.riderUserId, assignedByUserId: userId, assignedAt: now, offerStatus: "offered", offerExpiresAt, respondedAt: null, updatedAt: now }).where(eq(riderAssignments.id, existing.id));
+    else await tx.insert(riderAssignments).values({ orderId: order.id, riderUserId: input.riderUserId, assignedByUserId: userId, assignedAt: now, offerStatus: "offered", offerExpiresAt });
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_offer", entityId: String(order.id), action: "rider_offer_created", nextValue: JSON.stringify({ riderUserId: input.riderUserId, orderId: order.id, offerExpiresAt }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "dispatch", eventType: "rider.offer_created", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, organisationId, riderUserId: input.riderUserId, offerExpiresAt: offerExpiresAt.toISOString() }), deduplicationKey: eventKey("rider.offer_created", order.id) });
+    return { ...(await hydrateOrder(tx, order)), offerExpiresAt };
+  });
+}
+
+export async function acknowledgeKitchenOrder(userId: number, orderId: number) {
+  const db = await requireDb();
+  const organisationId = await ownedBusinessOrganisationId(db, userId);
+  return db.transaction(async (tx) => {
+    const order = (await tx.select().from(orders).where(eq(orders.id, orderId)).limit(1))[0];
+    if (!order) throw new DomainError("NOT_FOUND", "Order not found.");
+    if (order.organisationId !== organisationId) throw new DomainError("FORBIDDEN", "This order is outside your Business workspace.");
+    if (order.status !== "placed") throw new DomainError("CONFLICT", "Only a newly placed order can be acknowledged in the KDS.");
+    const existing = (await tx.select().from(orderKitchenAcknowledgements).where(eq(orderKitchenAcknowledgements.orderId, orderId)).limit(1))[0];
+    if (existing) return { ...existing, duplicate: true };
+    const now = new Date();
+    await tx.insert(orderKitchenAcknowledgements).values({ orderId, acknowledgedByUserId: userId, acknowledgedAt: now });
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "order", entityId: String(orderId), action: "kds_order_acknowledged", nextValue: JSON.stringify({ acknowledgedAt: now.toISOString() }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "orders", eventType: "order.kds_acknowledged", aggregateType: "order", aggregateId: String(orderId), payload: JSON.stringify({ orderId, organisationId, acknowledgedByUserId: userId }), deduplicationKey: eventKey("order.kds_acknowledged", orderId) });
+    return { orderId, acknowledgedAt: now, duplicate: false };
+  });
+}
+
+export async function listRiderOffers(userId: number) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  const now = new Date();
+  const rows = await db.select().from(riderAssignments).where(and(eq(riderAssignments.riderUserId, userId), eq(riderAssignments.offerStatus, "offered")));
+  const active = rows.filter((row: typeof riderAssignments.$inferSelect) => row.offerExpiresAt && row.offerExpiresAt > now);
+  const expired = rows.filter((row: typeof riderAssignments.$inferSelect) => !row.offerExpiresAt || row.offerExpiresAt <= now);
+  if (expired.length) await db.update(riderAssignments).set({ offerStatus: "expired", respondedAt: now }).where(inArray(riderAssignments.id, expired.map((row: typeof riderAssignments.$inferSelect) => row.id)));
+  return Promise.all(active.map(async (offer: typeof riderAssignments.$inferSelect) => ({ ...(await hydrateOrder(db, (await db.select().from(orders).where(eq(orders.id, offer.orderId)).limit(1))[0])), offerExpiresAt: offer.offerExpiresAt })));
+}
+
+export async function respondToRiderOffer(userId: number, input: { orderId: number; decision: "accept" | "decline"; note?: string }) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  return db.transaction(async (tx) => {
+    const offer = (await tx.select().from(riderAssignments).where(and(eq(riderAssignments.orderId, input.orderId), eq(riderAssignments.riderUserId, userId))).limit(1))[0];
+    const order = (await tx.select().from(orders).where(eq(orders.id, input.orderId)).limit(1))[0];
+    if (!offer || !order) throw new DomainError("NOT_FOUND", "Rider job offer not found.");
+    const now = new Date();
+    if (offer.offerStatus !== "offered") throw new DomainError("CONFLICT", "This job offer is no longer available.");
+    if (!offer.offerExpiresAt || offer.offerExpiresAt <= now) { await tx.update(riderAssignments).set({ offerStatus: "expired", respondedAt: now }).where(eq(riderAssignments.id, offer.id)); throw new DomainError("CONFLICT", "This job offer has expired."); }
+    if (order.status !== "ready_for_pickup") throw new DomainError("CONFLICT", "This order is no longer ready for dispatch.");
+    const accepted = input.decision === "accept";
+    await tx.update(riderAssignments).set({ offerStatus: accepted ? "accepted" : "declined", respondedAt: now, updatedAt: now }).where(eq(riderAssignments.id, offer.id));
+    if (accepted) { await tx.update(orders).set({ status: "assigned", updatedAt: now }).where(eq(orders.id, order.id)); await tx.insert(orderStatusHistory).values({ orderId: order.id, fromStatus: "ready_for_pickup", toStatus: "assigned", actorUserId: userId, note: "Rider accepted dispatch offer" }); }
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_offer", entityId: String(order.id), action: accepted ? "rider_offer_accepted" : "rider_offer_declined", nextValue: JSON.stringify({ note: input.note ?? null }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "dispatch", eventType: accepted ? "rider.offer_accepted" : "rider.offer_declined", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, riderUserId: userId, note: input.note ?? null }), deduplicationKey: eventKey(accepted ? "rider.offer_accepted" : "rider.offer_declined", order.id) });
+    return accepted ? hydrateOrder(tx, { ...order, status: "assigned", updatedAt: now }) : { orderId: order.id, declined: true };
   });
 }
 
 export async function listRiderOrders(userId: number) {
   const db = await requireDb();
   await requireActiveRider(db, userId);
-  const assignments = await db.select().from(riderAssignments).where(eq(riderAssignments.riderUserId, userId));
+  const assignments = (await db.select().from(riderAssignments).where(eq(riderAssignments.riderUserId, userId))).filter((assignment: typeof riderAssignments.$inferSelect) => assignment.offerStatus === "accepted");
   const orderIds = assignments.map((assignment: typeof riderAssignments.$inferSelect) => assignment.orderId);
   if (!orderIds.length) return [];
   const rows = await db.select().from(orders).where(inArray(orders.id, orderIds));

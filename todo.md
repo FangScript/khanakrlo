@@ -125,3 +125,15 @@
 - [x] Allow customers to change privacy or remove individual photos from their submitted reviews.
 - [x] Add user reporting for inappropriate public review photos with an auditable moderation queue.
 - [x] Add deterministic validation for review-photo edits, deletion ownership, and public-report access controls.
+- [ ] Add optional written descriptions to public review-photo reports with privacy-safe validation.
+- [ ] Add durable review-photo retention cleanup records, retry state, and audit/outbox behavior for removed images.
+- [ ] Enable physical object deletion when a deletion-capable storage service is configured.
+- [ ] Add deterministic validation for report descriptions and retention cleanup state transitions.
+- [ ] Reconcile the supplied platform, customer, Restaurant, Rider, Admin, and dispatch diagrams with the current single-app implementation.
+- [ ] Add real-time rider job-offer, accept/decline, and customer-notification delivery after the current manual dispatch baseline.
+- [ ] Add KDS acknowledgement alerts, order-source/AI exception review, and support-ticket foundations from the diagrammed operating flows.
+- [ ] Define payment-provider, billing/invoice, tax-receipt, and analytics integrations before connecting external production services.
+- [x] Build tenant-scoped KDS acknowledgement for new orders and persisted Rider job offers with accept, decline, and expiry controls.
+- [x] Add Customer support-ticket and device-notification-preference foundations with durable event records.
+- [ ] Prepare provider-ready interfaces for real SMS, payments, push delivery, WhatsApp order ingestion, and physical storage cleanup without enabling unconfigured providers.
+- [x] Validate the expanded diagram-aligned operations workflows and record explicit provider activation blockers.
