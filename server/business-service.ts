@@ -31,6 +31,7 @@ import {
 import { isBusinessOpenAt, validateBusinessHoursSchedule, type BusinessHoursWindow } from "../shared/business-hours";
 import { storagePut } from "./storage";
 import { getDb } from "./db";
+import { getOrganisationReputations, listPublicReviews } from "./review-service";
 
 type ApplicationReviewStatus = "changes_required" | "approved" | "suspended";
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
@@ -563,6 +564,7 @@ export async function updateManagedBusinessHours(userId: number, hours: Business
 export async function getLiveBusinessDiscovery(filter?: "restaurant" | "cloud_kitchen") {
   const db = await requireDb();
   const organisations = (await db.select().from(businessOrganisations).where(eq(businessOrganisations.status, "live"))).filter((organisation) => !filter || organisation.businessType === filter);
+  const reputations = await getOrganisationReputations(organisations.map((organisation) => organisation.id));
   const records = await Promise.all(organisations.map(async (organisation) => {
     const [outlets, kitchens] = await Promise.all([
       db.select().from(businessOutlets).where(eq(businessOutlets.organisationId, organisation.id)),
@@ -578,9 +580,10 @@ export async function getLiveBusinessDiscovery(filter?: "restaurant" | "cloud_ki
     const scope = outlet ? { scopeType: "outlet" as const, scopeId: outlet.id } : kitchen ? { scopeType: "cloud_kitchen" as const, scopeId: kitchen.id } : null;
     const hours = scope ? await db.select().from(businessHours).where(and(eq(businessHours.scopeType, scope.scopeType), eq(businessHours.scopeId, scope.scopeId))) : [];
     const isOpen = organisation.status === "live" && !(outlet?.isPaused || kitchen?.isPaused) && isBusinessOpenAt(hours);
-    return { id: organisation.id, businessType: organisation.businessType, displayName: organisation.displayName, city: organisation.city, cuisine: organisation.businessType === "restaurant" ? outlet?.cuisine ?? "Mixed" : brands.map((brand) => brand.cuisine).filter(Boolean).join(" • ") || "Cloud Kitchen", description: outlet?.description ?? brands[0]?.description ?? null, itemCount: items.length, isOpen, deliveryLabel: isOpen ? (organisation.businessType === "restaurant" ? "Restaurant delivery" : `${brands.length} kitchen brand${brands.length === 1 ? "" : "s"}`) : "Closed right now" };
+    const reputation = reputations.get(organisation.id) ?? { averageRatingMilli: null, reviewCount: 0, rankingScoreMilli: null };
+    return { id: organisation.id, businessType: organisation.businessType, displayName: organisation.displayName, city: organisation.city, cuisine: organisation.businessType === "restaurant" ? outlet?.cuisine ?? "Mixed" : brands.map((brand) => brand.cuisine).filter(Boolean).join(" • ") || "Cloud Kitchen", description: outlet?.description ?? brands[0]?.description ?? null, itemCount: items.length, isOpen, deliveryLabel: isOpen ? (organisation.businessType === "restaurant" ? "Restaurant delivery" : `${brands.length} kitchen brand${brands.length === 1 ? "" : "s"}`) : "Closed right now", ...reputation };
   }));
-  return records.sort((a, b) => a.displayName.localeCompare(b.displayName));
+  return records.sort((a, b) => Number(b.isOpen) - Number(a.isOpen) || (b.rankingScoreMilli ?? -1) - (a.rankingScoreMilli ?? -1) || b.reviewCount - a.reviewCount || a.displayName.localeCompare(b.displayName));
 }
 
 export async function getLiveBusinessMenu(organisationId: number) {
@@ -604,5 +607,7 @@ export async function getLiveBusinessMenu(organisationId: number) {
   const items = (await db.select().from(menuItems)).filter((item) => categoryIds.has(item.categoryId) && item.isAvailable && !item.archivedAt).sort((left, right) => left.name.localeCompare(right.name));
   const itemIds = new Set(items.map((item) => item.id));
   const modifiers = (await db.select().from(menuModifiers)).filter((modifier) => itemIds.has(modifier.menuItemId) && modifier.isAvailable && !modifier.archivedAt);
-  return { organisation: { id: organisation.id, displayName: organisation.displayName, city: organisation.city, businessType: organisation.businessType, description: outlet?.description ?? brands[0]?.description ?? null, cuisine: outlet?.cuisine ?? (brands.map((brand) => brand.cuisine).join(" • ") || "Mixed"), deliveryFeeMinor: (await db.select().from(serviceZones).where(eq(serviceZones.organisationId, organisation.id))).find((zone) => zone.isActive)?.deliveryFeeMinor ?? 0 }, categories, items, modifiers };
+  const [reviews, reputations] = await Promise.all([listPublicReviews(organisation.id, 3), getOrganisationReputations([organisation.id])]);
+  const reputation = reputations.get(organisation.id) ?? { averageRatingMilli: null, reviewCount: 0, rankingScoreMilli: null };
+  return { organisation: { id: organisation.id, displayName: organisation.displayName, city: organisation.city, businessType: organisation.businessType, description: outlet?.description ?? brands[0]?.description ?? null, cuisine: outlet?.cuisine ?? (brands.map((brand) => brand.cuisine).join(" • ") || "Mixed"), deliveryFeeMinor: (await db.select().from(serviceZones).where(eq(serviceZones.organisationId, organisation.id))).find((zone) => zone.isActive)?.deliveryFeeMinor ?? 0, ...reputation }, categories, items, modifiers, reviews };
 }

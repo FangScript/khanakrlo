@@ -112,3 +112,8 @@
 - [x] Preserve the requested Business setup destination through phone login and OTP completion.
 - [x] Prevent authenticated Business signup from falling back to Customer Home before onboarding or workspace routing resolves.
 - [x] Add deterministic routing coverage for unauthenticated and authenticated Business setup entry paths.
+- [x] Add durable delivery-verified customer reviews and private order feedback with one submission per delivered order.
+- [x] Add tenant-scoped Business review replies and moderation visibility controls with audit/outbox records.
+- [x] Replace sample ratings with server-calculated live rating aggregates and transparent discovery ranking.
+- [x] Add Customer review submission/history and Business feedback-management screens.
+- [x] Add deterministic review eligibility, ownership, moderation, aggregation, and ranking validation.

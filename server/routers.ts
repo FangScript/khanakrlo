@@ -13,6 +13,8 @@ import { orderService } from "./modules/orders/service";
 import { codCollectionConfirmInput, orderByIdInput, orderPlaceInput, orderQuoteInput, orderTransitionInput, riderAssignmentInput, riderLocationUpdateInput, riderOrderTransitionInput } from "./modules/contracts/orders";
 import { addressService } from "./modules/addresses/service";
 import { customerAddressCreateInput, customerAddressIdInput, customerAddressUpdateInput } from "./modules/contracts/addresses";
+import { reviewBusinessInput, reviewCreateInput, reviewModerationInput, reviewOrderInput, reviewReplyInput } from "./modules/contracts/reviews";
+import { reviewService } from "./modules/reviews/service";
 
 export const appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -77,6 +79,15 @@ export const appRouter = router({
     liveBusinesses: publicProcedure.input(discoveryFilterInput).query(({ input }) => callDomain(() => discoveryService.getLiveBusinesses(input?.businessType))),
     liveBusinessMenu: publicProcedure.input(liveBusinessMenuInput).query(({ input }) => callDomain(() => discoveryService.getLiveBusinessMenu(input.businessId))),
   }),
+  reviews: router({
+    create: protectedProcedure.input(reviewCreateInput).mutation(({ ctx, input }) => callDomain(() => reviewService.create(ctx.user.id, input))),
+    mineForOrder: protectedProcedure.input(reviewOrderInput).query(({ ctx, input }) => callDomain(() => reviewService.mineForOrder(ctx.user.id, input.orderId))),
+    publicByBusiness: publicProcedure.input(reviewBusinessInput).query(({ input }) => callDomain(() => reviewService.publicByBusiness(input.businessId))),
+  }),
+  businessReviews: router({
+    mine: protectedProcedure.query(({ ctx }) => callDomain(() => reviewService.businessMine(ctx.user.id))),
+    reply: protectedProcedure.input(reviewReplyInput).mutation(({ ctx, input }) => callDomain(() => reviewService.reply(ctx.user.id, input.reviewId, input.reply))),
+  }),
 
   orders: router({
     quote: protectedProcedure.input(orderQuoteInput).query(({ ctx, input }) => callDomain(() => orderService.quote(ctx.user.id, input))),
@@ -104,6 +115,9 @@ export const appRouter = router({
     listBusinesses: protectedProcedure.query(({ ctx }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); return callDomain(() => businessOnboardingService.listApplications()); }),
     suspend: protectedProcedure.input(businessEmergencySuspensionInput).mutation(async ({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); await callDomain(() => businessOnboardingService.suspendBusiness(ctx.user.id, input.applicationId, input.reason)); return { success: true } as const; }),
     restore: protectedProcedure.input(businessEmergencyRestoreInput).mutation(async ({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); await callDomain(() => businessOnboardingService.restoreBusiness(ctx.user.id, input.applicationId)); return { success: true } as const; }),
+  }),
+  adminReviews: router({
+    moderate: protectedProcedure.input(reviewModerationInput).mutation(({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); return callDomain(() => reviewService.moderate(ctx.user.id, input.reviewId, input.visibility, input.note)); }),
   }),
 
 });

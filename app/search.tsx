@@ -7,7 +7,7 @@ import { ScreenBack } from "@/components/khana-ui";
 import { ScreenContainer } from "@/components/screen-container";
 import { trpc } from "@/lib/trpc";
 
-type LiveBusiness = { id: number; businessType: "restaurant" | "cloud_kitchen"; displayName: string; city: string; cuisine: string; description: string | null; itemCount: number; isOpen: boolean; deliveryLabel: string };
+type LiveBusiness = { id: number; businessType: "restaurant" | "cloud_kitchen"; displayName: string; city: string; cuisine: string; description: string | null; itemCount: number; isOpen: boolean; deliveryLabel: string; averageRatingMilli: number | null; reviewCount: number };
 
 export default function SearchScreen() {
   const [query, setQuery] = useState("");
@@ -50,13 +50,14 @@ export default function SearchScreen() {
 }
 
 function SearchResult({ business }: { business: LiveBusiness }) {
+  const rating = business.averageRatingMilli === null ? "New" : `${(business.averageRatingMilli / 1000).toFixed(1)} · ${business.reviewCount}`;
   return (
     <Pressable onPress={() => router.push({ pathname: "/restaurant/[id]", params: { id: String(business.id) } } as never)} style={({ pressed }) => [styles.resultCard, pressed && styles.pressed]}>
       <View style={styles.resultImage}><MaterialIcons name={business.businessType === "restaurant" ? "storefront" : "kitchen"} size={27} color="#064B2C" /></View>
       <View style={styles.resultDetails}>
         <Text style={styles.resultName}>{business.displayName}</Text>
         <Text style={styles.resultCuisine}>{business.cuisine} · {business.city}</Text>
-        <View style={styles.resultMeta}><MaterialIcons name="restaurant-menu" size={13} color="#FFB73D" /><Text style={styles.resultMetaText}>{business.itemCount} dishes</Text><View style={styles.dot} /><Text style={styles.resultMetaText}>{business.deliveryLabel}</Text></View>
+        <View style={styles.resultMeta}><MaterialIcons name="star" size={13} color="#E5A10A" /><Text style={styles.resultMetaText}>{rating}</Text><View style={styles.dot} /><Text style={styles.resultMetaText}>{business.itemCount} dishes</Text><View style={styles.dot} /><Text style={styles.resultMetaText}>{business.deliveryLabel}</Text></View>
       </View>
       <MaterialIcons name="chevron-right" size={23} color="#064B2C" />
     </Pressable>

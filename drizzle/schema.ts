@@ -307,6 +307,30 @@ export const orderStatusHistory = mysqlTable("order_status_history", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [index("order_status_history_order_index").on(table.orderId, table.createdAt)]);
 
+/** A customer can submit one verified review only after their order is delivered. */
+export const orderReviews = mysqlTable("order_reviews", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  organisationId: int("organisationId").notNull(),
+  customerUserId: int("customerUserId").notNull(),
+  rating: int("rating").notNull(),
+  publicComment: varchar("publicComment", { length: 1000 }),
+  privateFeedback: varchar("privateFeedback", { length: 1000 }),
+  feedbackTopicsJson: varchar("feedbackTopicsJson", { length: 500 }).notNull().default("[]"),
+  visibility: mysqlEnum("visibility", ["published", "hidden"]).default("published").notNull(),
+  businessReply: varchar("businessReply", { length: 1000 }),
+  businessRepliedAt: timestamp("businessRepliedAt"),
+  moderatedByUserId: int("moderatedByUserId"),
+  moderatedAt: timestamp("moderatedAt"),
+  moderationNote: varchar("moderationNote", { length: 500 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("order_reviews_order_unique").on(table.orderId),
+  index("order_reviews_organisation_visibility_created_index").on(table.organisationId, table.visibility, table.createdAt),
+  index("order_reviews_customer_created_index").on(table.customerUserId, table.createdAt),
+]);
+
 /** One authoritative manual-dispatch assignment per order. Assignment is immutable for customer audit; reassignment is deliberately deferred. */
 export const riderAssignments = mysqlTable("rider_assignments", {
   id: int("id").autoincrement().primaryKey(),
