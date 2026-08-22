@@ -378,6 +378,20 @@ export const riderAssignments = mysqlTable("rider_assignments", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [uniqueIndex("rider_assignments_order_unique").on(table.orderId), index("rider_assignments_rider_status_index").on(table.riderUserId, table.assignedAt)]);
 
+/** Current dispatch eligibility for an active Rider. Existing accepted jobs remain visible if the Rider later goes offline. */
+export const riderAvailability = mysqlTable("rider_availability", {
+  id: int("id").autoincrement().primaryKey(), riderUserId: int("riderUserId").notNull(), status: mysqlEnum("status", ["online", "offline"]).default("offline").notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [uniqueIndex("rider_availability_rider_unique").on(table.riderUserId), index("rider_availability_status_updated_index").on(table.status, table.updatedAt)]);
+
+/** Controlled-pilot Rider balance. Negative balance represents platform commission reserved/deducted from the Rider account. */
+export const riderCashAccounts = mysqlTable("rider_cash_accounts", {
+  id: int("id").autoincrement().primaryKey(), riderUserId: int("riderUserId").notNull(), balanceMinor: int("balanceMinor").default(0).notNull(), status: mysqlEnum("status", ["active", "restricted", "suspended"]).default("active").notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [uniqueIndex("rider_cash_accounts_rider_unique").on(table.riderUserId)]);
+
+export const riderCashAccountEntries = mysqlTable("rider_cash_account_entries", {
+  id: int("id").autoincrement().primaryKey(), riderCashAccountId: int("riderCashAccountId").notNull(), riderUserId: int("riderUserId").notNull(), orderId: int("orderId"), entryType: mysqlEnum("entryType", ["commission_reserved", "commission_released", "cash_collected", "cash_variance", "settlement_adjustment"]).notNull(), amountMinor: int("amountMinor").notNull(), balanceAfterMinor: int("balanceAfterMinor").notNull(), reference: varchar("reference", { length: 160 }).notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [uniqueIndex("rider_cash_entries_order_type_unique").on(table.orderId, table.entryType), index("rider_cash_entries_rider_created_index").on(table.riderUserId, table.createdAt)]);
+
 /** Restaurant KDS acknowledgement is distinct from acceptance so new-order alerts can be safely dismissed without altering the order state. */
 export const orderKitchenAcknowledgements = mysqlTable("order_kitchen_acknowledgements", {
   id: int("id").autoincrement().primaryKey(),

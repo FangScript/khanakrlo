@@ -23,6 +23,7 @@ export const orderTransitionInput = z.object({ orderId: z.number().int().positiv
 export const riderAssignmentInput = z.object({ orderId: z.number().int().positive(), riderUserId: z.number().int().positive() }).strict();
 export const kitchenOrderAcknowledgementInput = z.object({ orderId: z.number().int().positive() }).strict();
 export const riderOfferDecisionInput = z.object({ orderId: z.number().int().positive(), decision: z.enum(["accept", "decline"]), note: z.string().trim().max(300).optional() }).strict();
+export const riderAvailabilityInput = z.object({ status: z.enum(["online", "offline"]) }).strict();
 export const riderOrderTransitionInput = z.object({ orderId: z.number().int().positive(), toStatus: z.enum(["picked_up", "delivered"]), note: z.string().trim().max(500).optional() }).strict();
 export const codCollectionConfirmInput = z.object({
   orderId: z.number().int().positive(),

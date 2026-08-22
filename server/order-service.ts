@@ -22,6 +22,9 @@ import {
   orders,
   orderStatusHistory,
   riderAssignments,
+  riderAvailability,
+  riderCashAccounts,
+  riderCashAccountEntries,
   riderLocationUpdates,
   serviceZones,
   settlementLedgerEntries,
@@ -237,10 +240,64 @@ export async function listAvailableRiders(userId: number) {
   const db = await requireDb();
   await ownedBusinessOrganisationId(db, userId);
   const memberships = await db.select().from(workspaceMemberships).where(and(eq(workspaceMemberships.workspaceType, "rider"), eq(workspaceMemberships.status, "active")));
-  const riderIds = memberships.map((membership: typeof workspaceMemberships.$inferSelect) => membership.userId);
+  const onlineRows = await db.select().from(riderAvailability).where(eq(riderAvailability.status, "online"));
+  const onlineIds = new Set(onlineRows.map((availability: typeof riderAvailability.$inferSelect) => availability.riderUserId));
+  const riderIds = memberships.filter((membership: typeof workspaceMemberships.$inferSelect) => onlineIds.has(membership.userId)).map((membership: typeof workspaceMemberships.$inferSelect) => membership.userId);
   if (!riderIds.length) return [];
   const profiles = await db.select().from(accountProfiles).where(inArray(accountProfiles.userId, riderIds));
   return riderIds.map((riderUserId: number) => ({ riderUserId, displayName: profiles.find((profile: typeof accountProfiles.$inferSelect) => profile.userId === riderUserId)?.givenName ?? `Rider ${riderUserId}` }));
+}
+
+export async function getRiderAvailability(userId: number) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  return (await db.select().from(riderAvailability).where(eq(riderAvailability.riderUserId, userId)).limit(1))[0] ?? { riderUserId: userId, status: "offline" as const, updatedAt: null };
+}
+
+export async function setRiderAvailability(userId: number, status: "online" | "offline") {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  const now = new Date();
+  await db.insert(riderAvailability).values({ riderUserId: userId, status, updatedAt: now }).onDuplicateKeyUpdate({ set: { status, updatedAt: now } });
+  await db.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_availability", entityId: String(userId), action: `rider_${status}`, nextValue: JSON.stringify({ status, updatedAt: now.toISOString() }) });
+  await db.insert(domainOutboxEvents).values({ domain: "dispatch", eventType: `rider.availability_${status}`, aggregateType: "rider", aggregateId: String(userId), payload: JSON.stringify({ riderUserId: userId, status }), deduplicationKey: eventKey(`rider.availability_${status}`, userId) });
+  return { riderUserId: userId, status, updatedAt: now };
+}
+
+export async function getRiderCashCustodySummary(userId: number) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  const collections = await db.select().from(codCollections).where(eq(codCollections.riderUserId, userId));
+  const orderIds = collections.map((collection: typeof codCollections.$inferSelect) => collection.orderId);
+  const orderRows = orderIds.length ? await db.select().from(orders).where(inArray(orders.id, orderIds)) : [];
+  const orderById = new Map(orderRows.map((order: typeof orders.$inferSelect) => [order.id, order]));
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startWeek = new Date(startToday); startWeek.setDate(startToday.getDate() - ((startToday.getDay() + 6) % 7));
+  const totalSince = (from: Date) => collections.filter((collection: typeof codCollections.$inferSelect) => collection.confirmedAt >= from).reduce((sum: number, collection: typeof codCollections.$inferSelect) => sum + collection.collectedMinor, 0);
+  const varianceSince = (from: Date) => collections.filter((collection: typeof codCollections.$inferSelect) => collection.confirmedAt >= from).reduce((sum: number, collection: typeof codCollections.$inferSelect) => sum + collection.varianceMinor, 0);
+  const openCustodyMinor = collections.filter((collection: typeof codCollections.$inferSelect) => orderById.get(collection.orderId)?.settlementStatus === "unsettled").reduce((sum: number, collection: typeof codCollections.$inferSelect) => sum + collection.collectedMinor, 0);
+  return { todayCollectedMinor: totalSince(startToday), weekCollectedMinor: totalSince(startWeek), todayVarianceMinor: varianceSince(startToday), weekVarianceMinor: varianceSince(startWeek), openCustodyMinor, confirmedCollections: collections.length, earningsStatus: "requires_payout_policy" as const };
+}
+
+async function reserveRiderCommission(tx: any, riderUserId: number, order: typeof orders.$inferSelect) {
+  const existing = (await tx.select().from(riderCashAccounts).where(eq(riderCashAccounts.riderUserId, riderUserId)).limit(1))[0];
+  if (!existing) { await tx.insert(riderCashAccounts).values({ riderUserId, balanceMinor: 0, status: "active" }); }
+  const account = existing ?? (await tx.select().from(riderCashAccounts).where(eq(riderCashAccounts.riderUserId, riderUserId)).limit(1))[0];
+  if (!account || account.status !== "active") throw new DomainError("CONFLICT", "Your Rider Cash Account is not eligible for a new COD job.");
+  const commissionMinor = order.paymentMethod === "cod" ? order.platformCommissionMinor : 0;
+  const nextBalance = account.balanceMinor - commissionMinor;
+  await tx.update(riderCashAccounts).set({ balanceMinor: nextBalance, updatedAt: new Date() }).where(eq(riderCashAccounts.id, account.id));
+  if (commissionMinor > 0) await tx.insert(riderCashAccountEntries).values({ riderCashAccountId: account.id, riderUserId, orderId: order.id, entryType: "commission_reserved", amountMinor: -commissionMinor, balanceAfterMinor: nextBalance, reference: `commission:${order.publicId}` });
+  return { accountId: account.id, commissionMinor, balanceMinor: nextBalance };
+}
+
+export async function getRiderCashAccount(userId: number) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  const account = (await db.select().from(riderCashAccounts).where(eq(riderCashAccounts.riderUserId, userId)).limit(1))[0] ?? { riderUserId: userId, balanceMinor: 0, status: "active" as const, updatedAt: null };
+  const entries = account.id ? await db.select().from(riderCashAccountEntries).where(eq(riderCashAccountEntries.riderUserId, userId)).orderBy(desc(riderCashAccountEntries.createdAt)).limit(30) : [];
+  return { account, entries };
 }
 
 export async function assignRiderToOrder(userId: number, input: { orderId: number; riderUserId: number }) {
@@ -307,7 +364,7 @@ export async function respondToRiderOffer(userId: number, input: { orderId: numb
     if (order.status !== "ready_for_pickup") throw new DomainError("CONFLICT", "This order is no longer ready for dispatch.");
     const accepted = input.decision === "accept";
     await tx.update(riderAssignments).set({ offerStatus: accepted ? "accepted" : "declined", respondedAt: now, updatedAt: now }).where(eq(riderAssignments.id, offer.id));
-    if (accepted) { await tx.update(orders).set({ status: "assigned", updatedAt: now }).where(eq(orders.id, order.id)); await tx.insert(orderStatusHistory).values({ orderId: order.id, fromStatus: "ready_for_pickup", toStatus: "assigned", actorUserId: userId, note: "Rider accepted dispatch offer" }); }
+    if (accepted) { await reserveRiderCommission(tx, userId, order); await tx.update(orders).set({ status: "assigned", updatedAt: now }).where(eq(orders.id, order.id)); await tx.insert(orderStatusHistory).values({ orderId: order.id, fromStatus: "ready_for_pickup", toStatus: "assigned", actorUserId: userId, note: "Rider accepted dispatch offer and commission was reserved against Rider Cash Account" }); }
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_offer", entityId: String(order.id), action: accepted ? "rider_offer_accepted" : "rider_offer_declined", nextValue: JSON.stringify({ note: input.note ?? null }) });
     await tx.insert(domainOutboxEvents).values({ domain: "dispatch", eventType: accepted ? "rider.offer_accepted" : "rider.offer_declined", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, riderUserId: userId, note: input.note ?? null }), deduplicationKey: eventKey(accepted ? "rider.offer_accepted" : "rider.offer_declined", order.id) });
     return accepted ? hydrateOrder(tx, { ...order, status: "assigned", updatedAt: now }) : { orderId: order.id, declined: true };
@@ -362,6 +419,12 @@ export async function confirmCodCollection(userId: number, input: { orderId: num
     const collectionStatus = varianceMinor === 0 ? "collected" : varianceMinor < 0 ? "short" : "over" as const;
     const now = new Date();
     await tx.insert(codCollections).values({ orderId: order.id, riderUserId: userId, expectedMinor, collectedMinor: input.collectedMinor, varianceMinor, varianceReason: input.varianceReason ?? null, status: collectionStatus, confirmedAt: now });
+    const account = (await tx.select().from(riderCashAccounts).where(eq(riderCashAccounts.riderUserId, userId)).limit(1))[0];
+    if (!account) throw new DomainError("CONFLICT", "Rider Cash Account was not reserved when this job was accepted.");
+    const balanceAfterCollection = account.balanceMinor + input.collectedMinor;
+    await tx.update(riderCashAccounts).set({ balanceMinor: balanceAfterCollection, updatedAt: now }).where(eq(riderCashAccounts.id, account.id));
+    await tx.insert(riderCashAccountEntries).values({ riderCashAccountId: account.id, riderUserId: userId, orderId: order.id, entryType: "cash_collected", amountMinor: input.collectedMinor, balanceAfterMinor: balanceAfterCollection, reference: `cod:${order.publicId}` });
+    if (varianceMinor !== 0) await tx.insert(riderCashAccountEntries).values({ riderCashAccountId: account.id, riderUserId: userId, orderId: order.id, entryType: "cash_variance", amountMinor: varianceMinor, balanceAfterMinor: balanceAfterCollection, reference: `variance:${order.publicId}` });
     await tx.update(orders).set({ paymentStatus: "paid", riderCashCustodyMinor: input.collectedMinor, settlementStatus: varianceMinor === 0 ? "unsettled" : "variance", updatedAt: now }).where(eq(orders.id, order.id));
     if (varianceMinor !== 0) await tx.insert(settlementLedgerEntries).values({ orderId: order.id, organisationId: order.organisationId, partyType: "rider", entryType: "collection_variance", amountMinor: varianceMinor });
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "cod_collection", entityId: String(order.id), action: "cod_collection_confirmed", previousValue: JSON.stringify({ expectedMinor }), nextValue: JSON.stringify({ collectedMinor: input.collectedMinor, varianceMinor, varianceReason: input.varianceReason ?? null }) });

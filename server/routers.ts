@@ -10,7 +10,7 @@ import { discoveryService } from "./modules/discovery/service";
 import { callDomain } from "./modules/gateway/domain-error";
 import { identityWorkspaceService } from "./modules/identity-workspace/service";
 import { orderService } from "./modules/orders/service";
-import { codCollectionConfirmInput, kitchenOrderAcknowledgementInput, orderByIdInput, orderPlaceInput, orderQuoteInput, orderTransitionInput, riderAssignmentInput, riderLocationUpdateInput, riderOfferDecisionInput, riderOrderTransitionInput } from "./modules/contracts/orders";
+import { codCollectionConfirmInput, kitchenOrderAcknowledgementInput, orderByIdInput, orderPlaceInput, orderQuoteInput, orderTransitionInput, riderAssignmentInput, riderAvailabilityInput, riderLocationUpdateInput, riderOfferDecisionInput, riderOrderTransitionInput } from "./modules/contracts/orders";
 import { addressService } from "./modules/addresses/service";
 import { customerAddressCreateInput, customerAddressIdInput, customerAddressUpdateInput } from "./modules/contracts/addresses";
 import { reviewBusinessInput, reviewCreateInput, reviewModerationInput, reviewOrderInput, reviewPhotoRemoveInput, reviewPhotoReportInput, reviewPhotoUploadInput, reviewPhotoPrivacyUpdateInput, reviewReplyInput } from "./modules/contracts/reviews";
@@ -106,6 +106,10 @@ export const appRouter = router({
     availableRiders: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.availableRiders(ctx.user.id))),
     assignRider: protectedProcedure.input(riderAssignmentInput).mutation(({ ctx, input }) => callDomain(() => orderService.assignRider(ctx.user.id, input))),
     riderOffers: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderOffers(ctx.user.id))),
+    riderAvailability: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderAvailability(ctx.user.id))),
+    setRiderAvailability: protectedProcedure.input(riderAvailabilityInput).mutation(({ ctx, input }) => callDomain(() => orderService.setRiderAvailability(ctx.user.id, input.status))),
+    riderCashCustodySummary: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderCashCustodySummary(ctx.user.id))),
+    riderCashAccount: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderCashAccount(ctx.user.id))),
     respondToRiderOffer: protectedProcedure.input(riderOfferDecisionInput).mutation(({ ctx, input }) => callDomain(() => orderService.respondToRiderOffer(ctx.user.id, input))),
     riderQueue: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderQueue(ctx.user.id))),
     riderTransition: protectedProcedure.input(riderOrderTransitionInput).mutation(({ ctx, input }) => callDomain(() => orderService.riderTransition(ctx.user.id, input))),

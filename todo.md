@@ -137,3 +137,14 @@
 - [x] Add Customer support-ticket and device-notification-preference foundations with durable event records.
 - [ ] Prepare provider-ready interfaces for real SMS, payments, push delivery, WhatsApp order ingestion, and physical storage cleanup without enabling unconfigured providers.
 - [x] Validate the expanded diagram-aligned operations workflows and record explicit provider activation blockers.
+- [x] Add durable Rider online/offline availability and restrict new dispatch offers to online active Riders.
+- [ ] Add Rider daily/weekly earnings and COD custody summaries from authoritative settlement records.
+- [ ] Add a persisted offline-safe Rider command queue for offer decisions, pickup, COD confirmation, delivery completion, and foreground locations.
+- [ ] Document background-location, FCM, identity-document, contact-privacy, and cash-threshold activation requirements.
+- [ ] Add deterministic Rider availability, earnings, cash-custody, and offline-command validation.
+- [x] Add deterministic validation for Rider availability and authoritative COD cash-custody summaries.
+- [x] Add a server-authoritative Rider Cash Account with immutable balance movements and account status.
+- [x] Reserve the order’s configured platform commission against the accepting Rider’s Cash Account for COD jobs.
+- [x] Reconcile Rider cash custody, collection variance, and commission reservation at delivery and settlement.
+- [x] Add Rider account balance and job-level commission/custody visibility.
+- [x] Add deterministic validation for Rider account balance, commission reservation, reversals, and COD variance integrity.

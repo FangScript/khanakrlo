@@ -113,6 +113,20 @@
       "when": 1787426213998,
       "tag": "0015_youthful_shocker",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1787426785687,
+      "tag": "0016_natural_toad",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1787427142336,
+      "tag": "0017_curvy_shinobi_shaw",
+      "breakpoints": true
     }
   ]
 }
