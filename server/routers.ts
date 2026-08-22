@@ -4,7 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { businessOnboardingService } from "./modules/business-onboarding/service";
 import { catalogueService } from "./modules/catalogue/service";
-import { businessDocumentUploadInput, businessDraftInput, businessLiveStatusInput, catalogueCategoryArchiveInput, catalogueCategoryCreateInput, catalogueCategoryUpdateInput, catalogueItemArchiveInput, catalogueItemCreateInput, catalogueItemImageUploadInput, catalogueItemUpdateInput, catalogueModifierArchiveInput, catalogueModifierCreateInput, catalogueModifierUpdateInput, deliveryZoneUpdateInput, discoveryFilterInput, liveBusinessMenuInput } from "./modules/contracts/business";
+import { businessDocumentUploadInput, businessDraftInput, businessHoursUpdateInput, businessLiveStatusInput, catalogueCategoryArchiveInput, catalogueCategoryCreateInput, catalogueCategoryUpdateInput, catalogueItemArchiveInput, catalogueItemCreateInput, catalogueItemImageUploadInput, catalogueItemUpdateInput, catalogueModifierArchiveInput, catalogueModifierCreateInput, catalogueModifierUpdateInput, deliveryZoneUpdateInput, discoveryFilterInput, liveBusinessMenuInput } from "./modules/contracts/business";
 import { workspaceApplicationReviewInput, workspaceApplicationSaveInput } from "./modules/contracts/workspace";
 import { discoveryService } from "./modules/discovery/service";
 import { callDomain } from "./modules/gateway/domain-error";
@@ -68,6 +68,8 @@ export const appRouter = router({
     setLiveStatus: protectedProcedure.input(businessLiveStatusInput).mutation(({ ctx, input }) => callDomain(() => catalogueService.setLiveStatus(ctx.user.id, input.status))),
     deliveryZone: protectedProcedure.query(({ ctx }) => callDomain(() => catalogueService.getDeliveryZone(ctx.user.id))),
     updateDeliveryZone: protectedProcedure.input(deliveryZoneUpdateInput).mutation(({ ctx, input }) => callDomain(() => catalogueService.updateDeliveryZone(ctx.user.id, input))),
+    businessHours: protectedProcedure.query(({ ctx }) => callDomain(() => catalogueService.getBusinessHours(ctx.user.id))),
+    updateBusinessHours: protectedProcedure.input(businessHoursUpdateInput).mutation(({ ctx, input }) => callDomain(() => catalogueService.updateBusinessHours(ctx.user.id, input.hours))),
   }),
 
   discovery: router({

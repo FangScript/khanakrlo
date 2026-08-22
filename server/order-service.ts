@@ -4,6 +4,7 @@ import {
   accountProfiles,
   auditEvents,
   businessCommissionPolicies,
+  businessHours,
   businessOrganisations,
   businessOutlets,
   businessStaffMemberships,
@@ -27,6 +28,7 @@ import {
 } from "../drizzle/schema";
 import { canTransitionOrder, type OrderStatus } from "../shared/order";
 import { distanceMeters, estimateCourierMinutes } from "../shared/delivery";
+import { isBusinessOpenAt } from "../shared/business-hours";
 import type { OrderPlaceInput, OrderQuoteInput } from "./modules/contracts/orders";
 import { DomainError } from "./modules/gateway/domain-error";
 import { getDb } from "./db";
@@ -75,8 +77,8 @@ function eventKey(eventType: string, aggregateId: number) {
 async function calculateQuote(db: any, userId: number, input: OrderQuoteInput): Promise<CheckoutQuote> {
   const address = (await db.select().from(customerAddresses).where(and(eq(customerAddresses.id, input.deliveryAddressId), eq(customerAddresses.userId, userId), isNull(customerAddresses.archivedAt))).limit(1))[0];
   if (!address) throw new DomainError("NOT_FOUND", "Choose a saved delivery address before checkout.");
-  const [itemRows, modifierRows, categoryRows, outletRows, kitchenRows, brandRows, organisationRows, zoneRows, commissionPolicies] = await Promise.all([
-    db.select().from(menuItems), db.select().from(menuModifiers), db.select().from(menuCategories), db.select().from(businessOutlets), db.select().from(cloudKitchens), db.select().from(kitchenBrands), db.select().from(businessOrganisations), db.select().from(serviceZones), db.select().from(businessCommissionPolicies),
+  const [itemRows, modifierRows, categoryRows, outletRows, kitchenRows, brandRows, organisationRows, zoneRows, commissionPolicies, hoursRows] = await Promise.all([
+    db.select().from(menuItems), db.select().from(menuModifiers), db.select().from(menuCategories), db.select().from(businessOutlets), db.select().from(cloudKitchens), db.select().from(kitchenBrands), db.select().from(businessOrganisations), db.select().from(serviceZones), db.select().from(businessCommissionPolicies), db.select().from(businessHours),
   ]);
   const requestedItemIds = new Set(input.items.map((line) => line.menuItemId));
   const requestedItems = itemRows.filter((item: typeof menuItems.$inferSelect) => requestedItemIds.has(item.id));
@@ -111,6 +113,9 @@ async function calculateQuote(db: any, userId: number, input: OrderQuoteInput): 
   });
   const first = resolved[0];
   if (resolved.some((line) => line.organisationId !== first.organisationId || line.outletId !== first.outletId || line.kitchenBrandId !== first.kitchenBrandId)) throw new DomainError("VALIDATION", "A checkout can contain dishes from one Restaurant or Cloud Kitchen brand only.");
+  const kitchen = first.kitchenBrandId ? kitchenRows.find((candidate: typeof cloudKitchens.$inferSelect) => candidate.organisationId === first.organisationId) : null;
+  const scopedHours = first.outletId ? hoursRows.filter((hour: typeof businessHours.$inferSelect) => hour.scopeType === "outlet" && hour.scopeId === first.outletId) : hoursRows.filter((hour: typeof businessHours.$inferSelect) => hour.scopeType === "cloud_kitchen" && hour.scopeId === kitchen?.id);
+  if (!isBusinessOpenAt(scopedHours)) throw new DomainError("CONFLICT", "This Business is currently closed.");
   const zone = zoneRows.find((candidate: typeof serviceZones.$inferSelect) => candidate.organisationId === first.organisationId && ((first.outletId !== null && candidate.outletId === first.outletId) || (first.kitchenBrandId !== null && candidate.cloudKitchenId === kitchenRows.find((kitchen: typeof cloudKitchens.$inferSelect) => kitchen.organisationId === first.organisationId)?.id)) && candidate.isActive);
   if (!zone) throw new DomainError("CONFLICT", "This Business does not currently have an active delivery zone.");
   if (zone.city.trim().toLocaleLowerCase() !== address.city.trim().toLocaleLowerCase()) throw new DomainError("CONFLICT", `${address.label} is outside this Business's delivery city.`);

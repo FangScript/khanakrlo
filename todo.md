@@ -97,3 +97,11 @@
 - [ ] Add order-linked support tickets, device notification preferences, and durable outbox-driven notification delivery foundations.
 - [x] Add a dedicated Customer Cart tab alongside Home, Orders, and Profile using the persisted cart and existing checkout flow.
 - [x] Refine the Pakistan mobile-number entry control so its +92 selector, input label, helper, and responsive spacing align as one unit.
+- [x] Audit the supplied Restaurant Module SRS against the existing Restaurant and Cloud Kitchen workspace.
+- [x] Reconcile the SRS commercial wording with the approved 12–15% marketplace commission model.
+- [x] Implement tenant-scoped operating-hours management for approved Restaurants and Cloud Kitchens.
+- [x] Add deterministic validation for Business-hours access control, validation, and persistence.
+- [ ] Add KDS status grouping and acknowledgement-based new-order alerts using real-time event delivery.
+- [ ] Add an AI-order exception-review workflow only when WhatsApp order ingestion is approved and implemented.
+- [ ] Define FBR receipt and reporting requirements with legal/tax validation before generating fiscal exports.
+- [ ] Add tenant-scoped promotion creation and server-authoritative discount application.

@@ -40,6 +40,13 @@ export const catalogueModifierArchiveInput = z.object({ modifierId: z.number().i
 export const catalogueItemImageUploadInput = z.object({ menuItemId: z.number().int().positive(), mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]), dataBase64: z.string().min(1).max(7_000_000) });
 export const businessLiveStatusInput = z.object({ status: z.enum(["live", "paused"]) });
 export const deliveryZoneUpdateInput = z.object({ name: z.string().trim().min(1).max(120), centerLatitudeE6: z.number().int().min(-90_000_000).max(90_000_000), centerLongitudeE6: z.number().int().min(-180_000_000).max(180_000_000), radiusMeters: z.number().int().min(500).max(50_000), courierBaseMinutes: z.number().int().min(1).max(90), courierMinutesPerKm: z.number().int().min(1).max(20) }).strict();
+const businessTimeInput = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+const businessHoursDayInput = z.object({ weekday: z.number().int().min(0).max(6), opensAt: businessTimeInput.nullable(), closesAt: businessTimeInput.nullable(), isClosed: z.boolean() }).superRefine((value, context) => {
+  if (!value.isClosed && (!value.opensAt || !value.closesAt || value.opensAt === value.closesAt)) context.addIssue({ code: "custom", message: "Open days need distinct opening and closing times." });
+});
+export const businessHoursUpdateInput = z.object({ hours: z.array(businessHoursDayInput).length(7) }).superRefine(({ hours }, context) => {
+  if (new Set(hours.map((hour) => hour.weekday)).size !== 7) context.addIssue({ code: "custom", message: "Each weekday must appear exactly once." });
+}).strict();
 export const discoveryFilterInput = z.object({ businessType: z.enum(BUSINESS_TYPES).optional() }).optional();
 export const liveBusinessMenuInput = z.object({ businessId: z.number().int().positive() });
 

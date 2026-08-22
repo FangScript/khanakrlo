@@ -16,4 +16,6 @@ export const catalogueService = {
   setLiveStatus: (userId: number, status: "live" | "paused") => legacyBusiness.setBusinessLiveStatus(userId, status),
   getDeliveryZone: (userId: number) => legacyBusiness.getManagedDeliveryZone(userId),
   updateDeliveryZone: (userId: number, input: Parameters<typeof legacyBusiness.updateManagedDeliveryZone>[1]) => legacyBusiness.updateManagedDeliveryZone(userId, input),
+  getBusinessHours: (userId: number) => legacyBusiness.getManagedBusinessHours(userId),
+  updateBusinessHours: (userId: number, input: Parameters<typeof legacyBusiness.updateManagedBusinessHours>[1]) => legacyBusiness.updateManagedBusinessHours(userId, input),
 };

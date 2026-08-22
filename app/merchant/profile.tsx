@@ -8,7 +8,7 @@ import { useMerchantStore } from "@/lib/merchant-store";
 
 const rows = [
   { icon: "restaurant-menu" as const, title: "Menu, prices & availability", subtitle: "Open the approved production catalogue", href: "/business/catalogue" },
-  { icon: "schedule" as const, title: "Business hours", subtitle: "Open today until 11:30 PM" },
+  { icon: "schedule" as const, title: "Business hours", subtitle: "Set the weekly schedule for customer ordering", href: "/business/hours" },
   { icon: "group" as const, title: "Staff access", subtitle: "4 team members" },
   { icon: "support-agent" as const, title: "Partner support", subtitle: "Get help with orders and payouts" },
 ];

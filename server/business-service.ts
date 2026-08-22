@@ -28,6 +28,7 @@ import {
   type BusinessDocumentType,
   validateBusinessApplicationDraft,
 } from "../shared/business";
+import { isBusinessOpenAt, validateBusinessHoursSchedule, type BusinessHoursWindow } from "../shared/business-hours";
 import { storagePut } from "./storage";
 import { getDb } from "./db";
 
@@ -232,6 +233,17 @@ async function getOwnedLiveBusinessContext(userId: number) {
   ]);
   const brands = kitchens[0] ? await db.select().from(kitchenBrands).where(eq(kitchenBrands.cloudKitchenId, kitchens[0].id)) : [];
   return { db, organisation, outlets, kitchens, brands };
+}
+
+function managedHoursScope(context: Awaited<ReturnType<typeof getOwnedLiveBusinessContext>>) {
+  if (context.organisation.businessType === "restaurant") {
+    const outlet = context.outlets[0];
+    if (!outlet) throw new Error("A Restaurant outlet is required before managing operating hours.");
+    return { scopeType: "outlet" as const, scopeId: outlet.id };
+  }
+  const kitchen = context.kitchens[0];
+  if (!kitchen) throw new Error("A Cloud Kitchen is required before managing operating hours.");
+  return { scopeType: "cloud_kitchen" as const, scopeId: kitchen.id };
 }
 
 async function catalogForContext(context: Awaited<ReturnType<typeof getOwnedLiveBusinessContext>>) {
@@ -444,6 +456,34 @@ export async function updateManagedDeliveryZone(userId: number, input: { name: s
   return getManagedDeliveryZone(userId);
 }
 
+export async function getManagedBusinessHours(userId: number) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const scope = managedHoursScope(context);
+  const stored = await context.db.select().from(businessHours).where(and(eq(businessHours.scopeType, scope.scopeType), eq(businessHours.scopeId, scope.scopeId)));
+  return Array.from({ length: 7 }, (_, weekday) => {
+    const hour = stored.find((candidate: typeof businessHours.$inferSelect) => candidate.weekday === weekday);
+    return { weekday, opensAt: hour?.opensAt ?? null, closesAt: hour?.closesAt ?? null, isClosed: hour?.isClosed ?? true };
+  });
+}
+
+export async function updateManagedBusinessHours(userId: number, hours: BusinessHoursWindow[]) {
+  const validationError = validateBusinessHoursSchedule(hours);
+  if (validationError) throw new Error(validationError);
+  const context = await getOwnedLiveBusinessContext(userId);
+  const scope = managedHoursScope(context);
+  const previousHours = await getManagedBusinessHours(userId);
+  const updatedAt = new Date();
+  await context.db.transaction(async (tx: any) => {
+    for (const hour of hours) {
+      const values = { scopeType: scope.scopeType, scopeId: scope.scopeId, weekday: hour.weekday, opensAt: hour.isClosed ? null : hour.opensAt, closesAt: hour.isClosed ? null : hour.closesAt, isClosed: hour.isClosed, updatedAt };
+      await tx.insert(businessHours).values(values).onDuplicateKeyUpdate({ set: values });
+    }
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "business_hours", entityId: `${scope.scopeType}:${scope.scopeId}`, action: "business_operating_hours_updated", previousValue: JSON.stringify(previousHours), nextValue: JSON.stringify(hours) });
+    await tx.insert(domainOutboxEvents).values({ domain: "business", eventType: "business.operating_hours_updated", aggregateType: "business_hours", aggregateId: `${scope.scopeType}:${scope.scopeId}`, payload: JSON.stringify({ organisationId: context.organisation.id, scope, hours }), deduplicationKey: `business.operating_hours_updated:${scope.scopeType}:${scope.scopeId}:${crypto.randomUUID()}` });
+  });
+  return getManagedBusinessHours(userId);
+}
+
 export async function getLiveBusinessDiscovery(filter?: "restaurant" | "cloud_kitchen") {
   const db = await requireDb();
   const organisations = (await db.select().from(businessOrganisations).where(eq(businessOrganisations.status, "live"))).filter((organisation) => !filter || organisation.businessType === filter);
@@ -459,7 +499,10 @@ export async function getLiveBusinessDiscovery(filter?: "restaurant" | "cloud_ki
     const entityCategories = categories.filter((category) => !category.archivedAt && category.isActive && ((outlet && category.outletId === outlet.id) || brands.some((brand) => category.kitchenBrandId === brand.id)));
     const categoryIds = new Set(entityCategories.map((category) => category.id));
     const items = (await db.select().from(menuItems)).filter((item) => categoryIds.has(item.categoryId) && item.isAvailable && !item.archivedAt);
-    return { id: organisation.id, businessType: organisation.businessType, displayName: organisation.displayName, city: organisation.city, cuisine: organisation.businessType === "restaurant" ? outlet?.cuisine ?? "Mixed" : brands.map((brand) => brand.cuisine).filter(Boolean).join(" • ") || "Cloud Kitchen", description: outlet?.description ?? brands[0]?.description ?? null, itemCount: items.length, isOpen: organisation.status === "live" && !(outlet?.isPaused || kitchen?.isPaused), deliveryLabel: organisation.businessType === "restaurant" ? "Restaurant delivery" : `${brands.length} kitchen brand${brands.length === 1 ? "" : "s"}` };
+    const scope = outlet ? { scopeType: "outlet" as const, scopeId: outlet.id } : kitchen ? { scopeType: "cloud_kitchen" as const, scopeId: kitchen.id } : null;
+    const hours = scope ? await db.select().from(businessHours).where(and(eq(businessHours.scopeType, scope.scopeType), eq(businessHours.scopeId, scope.scopeId))) : [];
+    const isOpen = organisation.status === "live" && !(outlet?.isPaused || kitchen?.isPaused) && isBusinessOpenAt(hours);
+    return { id: organisation.id, businessType: organisation.businessType, displayName: organisation.displayName, city: organisation.city, cuisine: organisation.businessType === "restaurant" ? outlet?.cuisine ?? "Mixed" : brands.map((brand) => brand.cuisine).filter(Boolean).join(" • ") || "Cloud Kitchen", description: outlet?.description ?? brands[0]?.description ?? null, itemCount: items.length, isOpen, deliveryLabel: isOpen ? (organisation.businessType === "restaurant" ? "Restaurant delivery" : `${brands.length} kitchen brand${brands.length === 1 ? "" : "s"}`) : "Closed right now" };
   }));
   return records.sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
@@ -475,6 +518,9 @@ export async function getLiveBusinessMenu(organisationId: number) {
   const outlet = outlets.find((candidate) => !candidate.isPaused && candidate.status !== "suspended") ?? null;
   const kitchen = kitchens.find((candidate) => !candidate.isPaused && candidate.status !== "suspended") ?? null;
   if (!outlet && !kitchen) throw new Error("This Business is not currently accepting orders.");
+  const hoursScope = outlet ? { scopeType: "outlet" as const, scopeId: outlet.id } : { scopeType: "cloud_kitchen" as const, scopeId: kitchen!.id };
+  const hours = await db.select().from(businessHours).where(and(eq(businessHours.scopeType, hoursScope.scopeType), eq(businessHours.scopeId, hoursScope.scopeId)));
+  if (!isBusinessOpenAt(hours)) throw new Error("This Business is currently closed.");
   const brands = kitchen ? (await db.select().from(kitchenBrands).where(eq(kitchenBrands.cloudKitchenId, kitchen.id))).filter((brand) => brand.isActive) : [];
   const allCategories = await db.select().from(menuCategories);
   const categories = allCategories.filter((category) => !category.archivedAt && category.isActive && ((outlet && category.outletId === outlet.id) || brands.some((brand) => category.kitchenBrandId === brand.id))).sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
