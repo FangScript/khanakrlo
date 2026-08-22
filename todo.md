@@ -152,3 +152,6 @@
 - [x] Add controlled Rider remittance submission and reconciliation actions that clear settled COD custody.
 - [x] Build a Rider account dashboard with balance, transaction history, pending cash settlements, and remittance actions.
 - [x] Add deterministic validation for threshold restrictions, remittance ownership, settlement idempotency, and account history visibility.
+- [x] Add a dedicated Rider Cash Account screen with complete immutable transaction history, balance, custody, and remittance context.
+- [x] Add a Rider profile navigation entry for the complete Cash Account history screen.
+- [x] Add deterministic validation for Rider Cash Account history screen data binding and navigation.
