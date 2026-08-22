@@ -180,6 +180,7 @@ export async function reviewWorkspaceApplication(reviewerUserId: number, applica
   const applicationRows = await db.select().from(workspaceApplications).where(eq(workspaceApplications.id, applicationId)).limit(1);
   const application = applicationRows[0];
   if (!application) throw new Error("Workspace application not found.");
+  if (application.workspaceType === "business") throw new Error("Business workspaces activate directly for their owners and cannot be approved by Admin.");
   if (!canReviewWorkspaceApplication(application.status, nextStatus)) throw new Error("This application cannot move to the requested review state.");
 
   await db.transaction(async (tx) => {

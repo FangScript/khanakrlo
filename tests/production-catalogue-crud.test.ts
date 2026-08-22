@@ -41,6 +41,7 @@ describe("production Restaurant catalogue CRUD contracts", () => {
     expect(source).toContain("archiveCategory");
     expect(source).toContain("archiveItem");
     expect(source).toContain("archiveModifier");
-    expect(source).toContain("Approved Business access required");
+    expect(source).toContain("Finish Business setup");
+    expect(source).not.toContain("Approved Business access required");
   });
 });

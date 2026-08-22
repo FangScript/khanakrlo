@@ -76,7 +76,12 @@ async function ownedBusinessApplication(userId: number) {
 
 export async function getMyBusinessApplication(userId: number) {
   const db = await requireDb();
-  const application = await ownedBusinessApplication(userId);
+  let application = await ownedBusinessApplication(userId);
+  if (!application) return null;
+  if (application.status === "submitted") {
+    await activateBusinessWorkspace(userId, application.id);
+    application = await ownedBusinessApplication(userId);
+  }
   if (!application) return null;
   const [detailRows, documentRows, checklistRows] = await Promise.all([
     db.select().from(businessApplicationDetails).where(eq(businessApplicationDetails.applicationId, application.id)).limit(1),
@@ -98,7 +103,7 @@ export async function saveBusinessDraft(userId: number, draftInput: BusinessAppl
   const db = await requireDb();
   const draft = normaliseDraft(draftInput);
   let application = await ownedBusinessApplication(userId);
-  if (application && !["draft", "changes_required"].includes(application.status)) throw new Error("This Business application is currently under review and cannot be changed.");
+  if (application && !["draft", "changes_required"].includes(application.status)) throw new Error("This Business workspace is already active. Manage its catalogue, hours, and delivery settings from the Business dashboard.");
   const now = new Date();
   const applicationValues = { workspaceType: "business" as const, businessType: draft.businessType, displayName: draft.displayName, phoneE164: draft.supportPhone, city: draft.city, status: submit ? "submitted" as const : "draft" as const, submittedAt: submit ? now : null, reviewNote: null };
 
@@ -119,13 +124,13 @@ export async function saveBusinessDraft(userId: number, draftInput: BusinessAppl
 
   if (submit) {
     const errors = validateBusinessApplicationDraft(draft);
-    const docs = await db.select().from(businessDocuments).where(eq(businessDocuments.applicationId, application.id));
-    const uploadedTypes = new Set(docs.filter((doc) => doc.status !== "rejected").map((doc) => doc.documentType));
-    for (const requirementKey of requirements) if (!uploadedTypes.has(requirementKey as BusinessDocumentType)) errors.push(`${requirementKey.replace(/_/g, " ")} document is required.`);
     if (errors.length) throw new Error(errors.join(" "));
     await db.update(workspaceApplications).set({ status: "submitted", submittedAt: now }).where(eq(workspaceApplications.id, application.id));
+    await activateBusinessWorkspace(userId, application.id);
+    await db.insert(auditEvents).values({ actorUserId: userId, entityType: "business_application", entityId: String(application.id), action: "business_workspace_self_activated", nextValue: JSON.stringify({ businessType: draft.businessType, workspaceStatus: "active" }) });
+    return application.id;
   }
-  await db.insert(auditEvents).values({ actorUserId: userId, entityType: "business_application", entityId: String(application.id), action: submit ? "business_application_submitted" : "business_application_saved", nextValue: JSON.stringify({ businessType: draft.businessType, status: submit ? "submitted" : "draft" }) });
+  await db.insert(auditEvents).values({ actorUserId: userId, entityType: "business_application", entityId: String(application.id), action: "business_application_saved", nextValue: JSON.stringify({ businessType: draft.businessType, status: "draft" }) });
   return application.id;
 }
 
@@ -164,6 +169,7 @@ export async function reviewBusinessApplication(reviewerUserId: number, applicat
   const applicationRows = await db.select().from(workspaceApplications).where(and(eq(workspaceApplications.id, applicationId), eq(workspaceApplications.workspaceType, "business"))).limit(1);
   const application = applicationRows[0];
   if (!application) throw new Error("Business application not found.");
+  if (status !== "approved" || reviewerUserId !== application.userId) throw new Error("Business workspaces activate directly for their owners; Admin approval is not available.");
   if (application.status !== "submitted") throw new Error("Only submitted Business applications can be reviewed.");
   const detailRows = await db.select().from(businessApplicationDetails).where(eq(businessApplicationDetails.applicationId, applicationId)).limit(1);
   const detail = detailRows[0];
@@ -206,15 +212,58 @@ export async function reviewBusinessApplication(reviewerUserId: number, applicat
       await tx.insert(workspaceMemberships).values({ userId: application.userId, workspaceType: "business", status: "active", applicationId, approvedAt: now }).onDuplicateKeyUpdate({ set: { status: "active", applicationId, approvedAt: now, suspendedAt: null, suspensionReason: null, updatedAt: now } });
       await tx.insert(domainOutboxEvents).values({ domain: "business-onboarding", eventType: "business.approved", aggregateType: "business_application", aggregateId: String(applicationId), payload: JSON.stringify({ applicationId, organisationId: organisation.id, ownerUserId: application.userId, businessType }), deduplicationKey: `business.approved:${applicationId}` }).onDuplicateKeyUpdate({ set: { processedAt: null, attempts: 0, lastError: null } });
     }
-    if (status === "suspended") await tx.insert(workspaceMemberships).values({ userId: application.userId, workspaceType: "business", status: "suspended", applicationId, suspendedAt: now, suspensionReason: reviewNote?.trim() || "Suspended by operations" }).onDuplicateKeyUpdate({ set: { status: "suspended", suspendedAt: now, suspensionReason: reviewNote?.trim() || "Suspended by operations", updatedAt: now } });
     await tx.insert(auditEvents).values({ actorUserId: reviewerUserId, entityType: "business_application", entityId: String(applicationId), action: `business_application_${status}`, previousValue: JSON.stringify({ status: application.status }), nextValue: JSON.stringify({ status, reviewNote: reviewNote?.trim() || null }) });
   });
 }
 
+/** Activates a completed Business setup for its owner without any Admin approval. */
+export async function activateBusinessWorkspace(userId: number, applicationId: number) {
+  const applicationRows = await (await requireDb()).select().from(workspaceApplications).where(and(eq(workspaceApplications.id, applicationId), eq(workspaceApplications.userId, userId), eq(workspaceApplications.workspaceType, "business"))).limit(1);
+  const application = applicationRows[0];
+  if (!application) throw new Error("Business setup was not found.");
+  if (application.status === "approved") return;
+  if (application.status !== "submitted") throw new Error("Complete the required Business setup fields before activating your workspace.");
+  await reviewBusinessApplication(userId, applicationId, "approved");
+}
+
+export async function suspendBusinessWorkspace(adminUserId: number, applicationId: number, reason: string) {
+  const db = await requireDb();
+  const application = (await db.select().from(workspaceApplications).where(and(eq(workspaceApplications.id, applicationId), eq(workspaceApplications.workspaceType, "business"))).limit(1))[0];
+  if (!application || application.status !== "approved") throw new Error("Only an active Business workspace can be suspended.");
+  const organisation = (await db.select().from(businessOrganisations).where(eq(businessOrganisations.applicationId, applicationId)).limit(1))[0];
+  if (!organisation) throw new Error("Business operation record is unavailable.");
+  const now = new Date();
+  const suspensionReason = reason.trim();
+  await db.transaction(async (tx: any) => {
+    await tx.update(workspaceApplications).set({ status: "suspended", reviewNote: suspensionReason, reviewedAt: now, reviewedByUserId: adminUserId }).where(eq(workspaceApplications.id, applicationId));
+    await tx.update(workspaceMemberships).set({ status: "suspended", suspendedAt: now, suspensionReason, updatedAt: now }).where(and(eq(workspaceMemberships.userId, application.userId), eq(workspaceMemberships.workspaceType, "business")));
+    await tx.update(businessOrganisations).set({ status: "suspended", updatedAt: now }).where(eq(businessOrganisations.id, organisation.id));
+    await tx.insert(auditEvents).values({ actorUserId: adminUserId, entityType: "business_organisation", entityId: String(organisation.id), action: "business_emergency_suspended", previousValue: JSON.stringify({ status: "approved" }), nextValue: JSON.stringify({ status: "suspended", reason: suspensionReason }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "business", eventType: "business.emergency_suspended", aggregateType: "business_organisation", aggregateId: String(organisation.id), payload: JSON.stringify({ applicationId, organisationId: organisation.id, reason: suspensionReason }), deduplicationKey: `business.emergency_suspended:${organisation.id}:${crypto.randomUUID()}` });
+  });
+}
+
+export async function restoreBusinessWorkspace(adminUserId: number, applicationId: number) {
+  const db = await requireDb();
+  const application = (await db.select().from(workspaceApplications).where(and(eq(workspaceApplications.id, applicationId), eq(workspaceApplications.workspaceType, "business"))).limit(1))[0];
+  if (!application || application.status !== "suspended") throw new Error("Only a suspended Business workspace can be restored.");
+  const organisation = (await db.select().from(businessOrganisations).where(eq(businessOrganisations.applicationId, applicationId)).limit(1))[0];
+  if (!organisation) throw new Error("Business operation record is unavailable.");
+  const now = new Date();
+  await db.transaction(async (tx: any) => {
+    await tx.update(workspaceApplications).set({ status: "approved", reviewNote: null, reviewedAt: now, reviewedByUserId: adminUserId }).where(eq(workspaceApplications.id, applicationId));
+    await tx.update(workspaceMemberships).set({ status: "active", suspendedAt: null, suspensionReason: null, updatedAt: now }).where(and(eq(workspaceMemberships.userId, application.userId), eq(workspaceMemberships.workspaceType, "business")));
+    await tx.update(businessOrganisations).set({ status: "paused", updatedAt: now }).where(eq(businessOrganisations.id, organisation.id));
+    await tx.insert(auditEvents).values({ actorUserId: adminUserId, entityType: "business_organisation", entityId: String(organisation.id), action: "business_emergency_restored", previousValue: JSON.stringify({ status: "suspended" }), nextValue: JSON.stringify({ status: "paused" }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "business", eventType: "business.emergency_restored", aggregateType: "business_organisation", aggregateId: String(organisation.id), payload: JSON.stringify({ applicationId, organisationId: organisation.id }), deduplicationKey: `business.emergency_restored:${organisation.id}:${crypto.randomUUID()}` });
+  });
+}
+
 export async function getMyBusinessOperations(userId: number) {
+  await ensureSelfServiceBusinessActivation(userId);
   const db = await requireDb();
   const membership = (await db.select().from(workspaceMemberships).where(and(eq(workspaceMemberships.userId, userId), eq(workspaceMemberships.workspaceType, "business"), eq(workspaceMemberships.status, "active"))).limit(1))[0];
-  if (!membership) throw new Error("An approved active Business workspace is required.");
+  if (!membership) throw new Error("An active Business workspace is required.");
   const organisation = (await db.select().from(businessOrganisations).where(and(eq(businessOrganisations.applicationId, membership.applicationId!), eq(businessOrganisations.ownerUserId, userId))).limit(1))[0];
   if (!organisation) throw new Error("Business operation record is unavailable.");
   const [outlets, kitchens] = await Promise.all([db.select().from(businessOutlets).where(eq(businessOutlets.organisationId, organisation.id)), db.select().from(cloudKitchens).where(eq(cloudKitchens.organisationId, organisation.id))]);
@@ -222,9 +271,10 @@ export async function getMyBusinessOperations(userId: number) {
 }
 
 async function getOwnedLiveBusinessContext(userId: number) {
+  await ensureSelfServiceBusinessActivation(userId);
   const db = await requireDb();
   const membership = (await db.select().from(workspaceMemberships).where(and(eq(workspaceMemberships.userId, userId), eq(workspaceMemberships.workspaceType, "business"), eq(workspaceMemberships.status, "active"))).limit(1))[0];
-  if (!membership?.applicationId) throw new Error("An approved active Business workspace is required.");
+  if (!membership?.applicationId) throw new Error("An active Business workspace is required.");
   const organisation = (await db.select().from(businessOrganisations).where(and(eq(businessOrganisations.applicationId, membership.applicationId), eq(businessOrganisations.ownerUserId, userId))).limit(1))[0];
   if (!organisation) throw new Error("Business operation record is unavailable.");
   const [outlets, kitchens] = await Promise.all([
@@ -233,6 +283,11 @@ async function getOwnedLiveBusinessContext(userId: number) {
   ]);
   const brands = kitchens[0] ? await db.select().from(kitchenBrands).where(eq(kitchenBrands.cloudKitchenId, kitchens[0].id)) : [];
   return { db, organisation, outlets, kitchens, brands };
+}
+
+async function ensureSelfServiceBusinessActivation(userId: number) {
+  const application = await ownedBusinessApplication(userId);
+  if (application?.status === "submitted") await activateBusinessWorkspace(userId, application.id);
 }
 
 function managedHoursScope(context: Awaited<ReturnType<typeof getOwnedLiveBusinessContext>>) {
@@ -430,9 +485,30 @@ export async function archiveCatalogueModifier(userId: number, input: { modifier
 
 export async function setBusinessLiveStatus(userId: number, status: "live" | "paused") {
   const context = await getOwnedLiveBusinessContext(userId);
+  if (status === "live") {
+    const readiness = await getBusinessPublicationReadiness(userId);
+    if (!readiness.isReady) throw new Error(`Finish these setup items before going live: ${readiness.missing.join(", ")}.`);
+  }
   await context.db.update(businessOrganisations).set({ status, updatedAt: new Date() }).where(eq(businessOrganisations.id, context.organisation.id));
   await context.db.insert(auditEvents).values({ actorUserId: userId, entityType: "business_organisation", entityId: String(context.organisation.id), action: `business_${status}` });
   return { status };
+}
+
+export async function getBusinessPublicationReadiness(userId: number) {
+  const context = await getOwnedLiveBusinessContext(userId);
+  const catalogue = await catalogForContext(context);
+  const missing: string[] = [];
+  const scope = managedHoursScope(context);
+  const [zones, hours] = await Promise.all([
+    context.db.select().from(serviceZones).where(and(eq(serviceZones.organisationId, context.organisation.id), eq(serviceZones.isActive, true))),
+    context.db.select().from(businessHours).where(and(eq(businessHours.scopeType, scope.scopeType), eq(businessHours.scopeId, scope.scopeId))),
+  ]);
+  if (!context.organisation.displayName.trim() || !context.organisation.supportPhone.trim()) missing.push("Business profile");
+  if (!catalogue.categories.some((category) => category.isActive)) missing.push("an active menu category");
+  if (!catalogue.items.some((item) => item.isAvailable)) missing.push("an available menu item");
+  if (!zones.length) missing.push("an active delivery zone");
+  if (hours.length !== 7 || hours.every((hour) => hour.isClosed)) missing.push("weekly operating hours");
+  return { isReady: missing.length === 0, missing };
 }
 
 export async function getManagedDeliveryZone(userId: number) {

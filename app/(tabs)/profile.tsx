@@ -7,7 +7,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useKhanaStore } from "@/lib/khana-store";
 
 const profileRows = [
-  { icon: "workspaces", title: "Khana KarLo workspaces", subtitle: "Customer, Business, and Rider access", message: "Manage role applications and switch only between approved workspaces.", route: "/account/workspaces" },
+  { icon: "workspaces", title: "Khana KarLo workspaces", subtitle: "Customer, Business, and Rider access", message: "Create and switch between your Customer, Business, and Rider workspaces.", route: "/account/workspaces" },
   { icon: "location-on", title: "Saved addresses", subtitle: "Geocoded delivery places", message: "Manage delivery addresses.", route: "/addresses" },
   { icon: "notifications", title: "Notifications", subtitle: "Order updates and offers", message: "Notification preferences will be stored when customer settings are connected." },
   { icon: "help", title: "Help center", subtitle: "FAQs, support, and feedback", message: "The production help centre will link order-specific support and FAQs." },

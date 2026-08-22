@@ -4,7 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { businessOnboardingService } from "./modules/business-onboarding/service";
 import { catalogueService } from "./modules/catalogue/service";
-import { businessDocumentUploadInput, businessDraftInput, businessHoursUpdateInput, businessLiveStatusInput, catalogueCategoryArchiveInput, catalogueCategoryCreateInput, catalogueCategoryUpdateInput, catalogueItemArchiveInput, catalogueItemCreateInput, catalogueItemImageUploadInput, catalogueItemUpdateInput, catalogueModifierArchiveInput, catalogueModifierCreateInput, catalogueModifierUpdateInput, deliveryZoneUpdateInput, discoveryFilterInput, liveBusinessMenuInput } from "./modules/contracts/business";
+import { businessDocumentUploadInput, businessDraftInput, businessEmergencyRestoreInput, businessEmergencySuspensionInput, businessHoursUpdateInput, businessLiveStatusInput, catalogueCategoryArchiveInput, catalogueCategoryCreateInput, catalogueCategoryUpdateInput, catalogueItemArchiveInput, catalogueItemCreateInput, catalogueItemImageUploadInput, catalogueItemUpdateInput, catalogueModifierArchiveInput, catalogueModifierCreateInput, catalogueModifierUpdateInput, deliveryZoneUpdateInput, discoveryFilterInput, liveBusinessMenuInput } from "./modules/contracts/business";
 import { workspaceApplicationReviewInput, workspaceApplicationSaveInput } from "./modules/contracts/workspace";
 import { discoveryService } from "./modules/discovery/service";
 import { callDomain } from "./modules/gateway/domain-error";
@@ -70,6 +70,7 @@ export const appRouter = router({
     updateDeliveryZone: protectedProcedure.input(deliveryZoneUpdateInput).mutation(({ ctx, input }) => callDomain(() => catalogueService.updateDeliveryZone(ctx.user.id, input))),
     businessHours: protectedProcedure.query(({ ctx }) => callDomain(() => catalogueService.getBusinessHours(ctx.user.id))),
     updateBusinessHours: protectedProcedure.input(businessHoursUpdateInput).mutation(({ ctx, input }) => callDomain(() => catalogueService.updateBusinessHours(ctx.user.id, input.hours))),
+    publicationReadiness: protectedProcedure.query(({ ctx }) => callDomain(() => catalogueService.getPublicationReadiness(ctx.user.id))),
   }),
 
   discovery: router({
@@ -100,8 +101,9 @@ export const appRouter = router({
   }),
 
   adminBusiness: router({
-    listApplications: protectedProcedure.query(({ ctx }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); return callDomain(() => businessOnboardingService.listApplications()); }),
-    reviewApplication: protectedProcedure.input(workspaceApplicationReviewInput).mutation(async ({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); await callDomain(() => businessOnboardingService.reviewApplication(ctx.user.id, input.applicationId, input.status, input.reviewNote)); return { success: true } as const; }),
+    listBusinesses: protectedProcedure.query(({ ctx }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); return callDomain(() => businessOnboardingService.listApplications()); }),
+    suspend: protectedProcedure.input(businessEmergencySuspensionInput).mutation(async ({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); await callDomain(() => businessOnboardingService.suspendBusiness(ctx.user.id, input.applicationId, input.reason)); return { success: true } as const; }),
+    restore: protectedProcedure.input(businessEmergencyRestoreInput).mutation(async ({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); await callDomain(() => businessOnboardingService.restoreBusiness(ctx.user.id, input.applicationId)); return { success: true } as const; }),
   }),
 
 });

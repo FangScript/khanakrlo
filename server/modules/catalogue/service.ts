@@ -18,4 +18,5 @@ export const catalogueService = {
   updateDeliveryZone: (userId: number, input: Parameters<typeof legacyBusiness.updateManagedDeliveryZone>[1]) => legacyBusiness.updateManagedDeliveryZone(userId, input),
   getBusinessHours: (userId: number) => legacyBusiness.getManagedBusinessHours(userId),
   updateBusinessHours: (userId: number, input: Parameters<typeof legacyBusiness.updateManagedBusinessHours>[1]) => legacyBusiness.updateManagedBusinessHours(userId, input),
+  getPublicationReadiness: (userId: number) => legacyBusiness.getBusinessPublicationReadiness(userId),
 };

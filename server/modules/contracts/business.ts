@@ -47,6 +47,8 @@ const businessHoursDayInput = z.object({ weekday: z.number().int().min(0).max(6)
 export const businessHoursUpdateInput = z.object({ hours: z.array(businessHoursDayInput).length(7) }).superRefine(({ hours }, context) => {
   if (new Set(hours.map((hour) => hour.weekday)).size !== 7) context.addIssue({ code: "custom", message: "Each weekday must appear exactly once." });
 }).strict();
+export const businessEmergencySuspensionInput = z.object({ applicationId: z.number().int().positive(), reason: z.string().trim().min(10).max(500) }).strict();
+export const businessEmergencyRestoreInput = z.object({ applicationId: z.number().int().positive() }).strict();
 export const discoveryFilterInput = z.object({ businessType: z.enum(BUSINESS_TYPES).optional() }).optional();
 export const liveBusinessMenuInput = z.object({ businessId: z.number().int().positive() });
 

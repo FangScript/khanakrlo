@@ -105,3 +105,7 @@
 - [ ] Add an AI-order exception-review workflow only when WhatsApp order ingestion is approved and implemented.
 - [ ] Define FBR receipt and reporting requirements with legal/tax validation before generating fiscal exports.
 - [ ] Add tenant-scoped promotion creation and server-authoritative discount application.
+- [x] Remove every Admin approval gate from Restaurant and Cloud Kitchen workspace access, setup, and publishing.
+- [x] Add automatic self-service publication readiness checks without Admin review or publication holds.
+- [x] Preserve Admin support and emergency suspension tools without any Business approval workflow.
+- [x] Add deterministic coverage for direct Business activation, self-service publishing, and emergency-only suspension.
