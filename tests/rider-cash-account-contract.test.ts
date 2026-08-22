@@ -11,6 +11,8 @@ describe("Rider Cash Account", () => {
     expect(service).toContain('order.paymentMethod === "cod" ? order.platformCommissionMinor : 0');
     expect(service).toContain('entryType: "commission_reserved"');
     expect(service).toContain("balanceMinor - commissionMinor");
+    expect(service).toContain("riderCashThresholdMinor = 1_000_000");
+    expect(service).toContain("exceeds the PKR 10,000 pilot limit");
   });
 
   it("reconciles confirmed COD cash and variance through immutable account entries", () => {
@@ -27,5 +29,8 @@ describe("Rider Cash Account", () => {
     expect(router).toContain("riderCashAccount");
     expect(profile).toContain("Rider Cash Account");
     expect(profile).toContain("Commission is reserved when you accept a COD job");
+    expect(profile).toContain("Settle PKR");
+    expect(router).toContain("remitRiderCash");
+    expect(source("server/order-service.ts")).toContain("Remittance must match the server-calculated outstanding COD custody amount.");
   });
 });

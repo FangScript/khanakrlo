@@ -281,15 +281,17 @@ export async function getRiderCashCustodySummary(userId: number) {
 }
 
 async function reserveRiderCommission(tx: any, riderUserId: number, order: typeof orders.$inferSelect) {
+  const riderCashThresholdMinor = 1_000_000;
   const existing = (await tx.select().from(riderCashAccounts).where(eq(riderCashAccounts.riderUserId, riderUserId)).limit(1))[0];
   if (!existing) { await tx.insert(riderCashAccounts).values({ riderUserId, balanceMinor: 0, status: "active" }); }
   const account = existing ?? (await tx.select().from(riderCashAccounts).where(eq(riderCashAccounts.riderUserId, riderUserId)).limit(1))[0];
   if (!account || account.status !== "active") throw new DomainError("CONFLICT", "Your Rider Cash Account is not eligible for a new COD job.");
+  if (order.paymentMethod === "cod" && account.balanceMinor > riderCashThresholdMinor) throw new DomainError("CONFLICT", "Your outstanding Rider Cash Account balance exceeds the PKR 10,000 pilot limit. Submit a remittance for reconciliation before accepting another COD job.");
   const commissionMinor = order.paymentMethod === "cod" ? order.platformCommissionMinor : 0;
   const nextBalance = account.balanceMinor - commissionMinor;
   await tx.update(riderCashAccounts).set({ balanceMinor: nextBalance, updatedAt: new Date() }).where(eq(riderCashAccounts.id, account.id));
   if (commissionMinor > 0) await tx.insert(riderCashAccountEntries).values({ riderCashAccountId: account.id, riderUserId, orderId: order.id, entryType: "commission_reserved", amountMinor: -commissionMinor, balanceAfterMinor: nextBalance, reference: `commission:${order.publicId}` });
-  return { accountId: account.id, commissionMinor, balanceMinor: nextBalance };
+  return { accountId: account.id, commissionMinor, balanceMinor: nextBalance, riderCashThresholdMinor };
 }
 
 export async function getRiderCashAccount(userId: number) {
@@ -298,6 +300,28 @@ export async function getRiderCashAccount(userId: number) {
   const account = (await db.select().from(riderCashAccounts).where(eq(riderCashAccounts.riderUserId, userId)).limit(1))[0] ?? { riderUserId: userId, balanceMinor: 0, status: "active" as const, updatedAt: null };
   const entries = account.id ? await db.select().from(riderCashAccountEntries).where(eq(riderCashAccountEntries.riderUserId, userId)).orderBy(desc(riderCashAccountEntries.createdAt)).limit(30) : [];
   return { account, entries };
+}
+
+export async function remitRiderCash(userId: number, amountMinor: number) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  return db.transaction(async (tx) => {
+    const account = (await tx.select().from(riderCashAccounts).where(eq(riderCashAccounts.riderUserId, userId)).limit(1))[0];
+    if (!account) throw new DomainError("NOT_FOUND", "Rider Cash Account not found.");
+    const assignments = (await tx.select().from(riderAssignments).where(and(eq(riderAssignments.riderUserId, userId), eq(riderAssignments.offerStatus, "accepted"))));
+    const orderIds = assignments.map((assignment: typeof riderAssignments.$inferSelect) => assignment.orderId);
+    const unsettled = orderIds.length ? (await tx.select().from(orders).where(inArray(orders.id, orderIds))).filter((order: typeof orders.$inferSelect) => order.paymentMethod === "cod" && order.paymentStatus === "paid" && order.settlementStatus === "unsettled") : [];
+    const outstandingMinor = unsettled.reduce((sum: number, order: typeof orders.$inferSelect) => sum + order.riderCashCustodyMinor, 0);
+    if (!outstandingMinor) throw new DomainError("CONFLICT", "There is no COD custody ready for remittance.");
+    if (amountMinor !== outstandingMinor) throw new DomainError("VALIDATION", "Remittance must match the server-calculated outstanding COD custody amount.");
+    const now = new Date(); const nextBalance = account.balanceMinor - amountMinor;
+    await tx.update(riderCashAccounts).set({ balanceMinor: nextBalance, updatedAt: now }).where(eq(riderCashAccounts.id, account.id));
+    await tx.insert(riderCashAccountEntries).values({ riderCashAccountId: account.id, riderUserId: userId, entryType: "settlement_adjustment", amountMinor: -amountMinor, balanceAfterMinor: nextBalance, reference: `remittance:${now.toISOString()}` });
+    await tx.update(orders).set({ settlementStatus: "reconciled", updatedAt: now }).where(inArray(orders.id, unsettled.map((order: typeof orders.$inferSelect) => order.id)));
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_cash_account", entityId: String(account.id), action: "rider_remittance_submitted", nextValue: JSON.stringify({ amountMinor, orderIds: unsettled.map((order: typeof orders.$inferSelect) => order.id) }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "settlement", eventType: "rider.remittance_submitted", aggregateType: "rider", aggregateId: String(userId), payload: JSON.stringify({ riderUserId: userId, amountMinor, orderIds: unsettled.map((order: typeof orders.$inferSelect) => order.id) }), deduplicationKey: eventKey("rider.remittance_submitted", userId) });
+    return { amountMinor, reconciledOrderIds: unsettled.map((order: typeof orders.$inferSelect) => order.id), balanceMinor: nextBalance };
+  });
 }
 
 export async function assignRiderToOrder(userId: number, input: { orderId: number; riderUserId: number }) {

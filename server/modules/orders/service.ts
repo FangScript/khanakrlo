@@ -16,6 +16,7 @@ export const orderService = {
   setRiderAvailability: (userId: number, status: "online" | "offline") => legacyOrders.setRiderAvailability(userId, status),
   riderCashCustodySummary: (userId: number) => legacyOrders.getRiderCashCustodySummary(userId),
   riderCashAccount: (userId: number) => legacyOrders.getRiderCashAccount(userId),
+  remitRiderCash: (userId: number, amountMinor: number) => legacyOrders.remitRiderCash(userId, amountMinor),
   respondToRiderOffer: (userId: number, input: Parameters<typeof legacyOrders.respondToRiderOffer>[1]) => legacyOrders.respondToRiderOffer(userId, input),
   riderQueue: (userId: number) => legacyOrders.listRiderOrders(userId),
   riderTransition: (userId: number, input: Parameters<typeof legacyOrders.transitionRiderOrder>[1]) => legacyOrders.transitionRiderOrder(userId, input),

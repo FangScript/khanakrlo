@@ -148,3 +148,7 @@
 - [x] Reconcile Rider cash custody, collection variance, and commission reservation at delivery and settlement.
 - [x] Add Rider account balance and job-level commission/custody visibility.
 - [x] Add deterministic validation for Rider account balance, commission reservation, reversals, and COD variance integrity.
+- [x] Enforce a server-authoritative overdue Rider cash threshold before accepting new COD offers.
+- [x] Add controlled Rider remittance submission and reconciliation actions that clear settled COD custody.
+- [x] Build a Rider account dashboard with balance, transaction history, pending cash settlements, and remittance actions.
+- [x] Add deterministic validation for threshold restrictions, remittance ownership, settlement idempotency, and account history visibility.
