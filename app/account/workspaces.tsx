@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, Text
 import { ScreenContainer } from "@/components/screen-container";
 import { useKhanaStore } from "@/lib/khana-store";
 import { useMerchantStore } from "@/lib/merchant-store";
+import { establishPreviewPhoneSession } from "@/lib/preview-phone-session";
 import { trpc } from "@/lib/trpc";
 import { getPreviewWorkspaceDestination, useWorkspacePreview } from "@/lib/workspace-preview";
 import type { BusinessType, WorkspaceApplicationType, WorkspaceAvailabilityStatus, WorkspaceType } from "@/shared/workspace";
@@ -78,7 +79,7 @@ export default function WorkspacesScreen() {
   if (workspaceQuery.isLoading && !hasHydratedCustomer) return <ScreenContainer><View style={styles.loading}><ActivityIndicator color="#168A4A" /><Text style={styles.loadingText}>Loading your workspaces…</Text></View></ScreenContainer>;
 
   if (isUnauthenticated) {
-    if (customer) return <PreviewWorkspaceHub customerName={customer.name} customerPhone={customer.phone} onOpen={(workspace) => { setActiveWorkspace(workspace); if (workspace === "business") completeMerchantSignIn(customer.phone); router.push(getPreviewWorkspaceDestination(workspace) as never); }} />;
+    if (customer) return <PreviewWorkspaceHub customerName={customer.name} customerPhone={customer.phone} onOpen={async (workspace) => { setActiveWorkspace(workspace); if (workspace === "business") { await establishPreviewPhoneSession(customer.phone); completeMerchantSignIn(customer.phone); router.push("/business/onboarding" as never); return; } router.push(getPreviewWorkspaceDestination(workspace) as never); }} />;
     return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.emptyScreen}><View style={styles.lockIcon}><MaterialIcons name="lock" size={27} color="#064B2C" /></View><Text style={styles.emptyTitle}>Sign in to manage workspaces</Text><Text style={styles.emptyCopy}>Use one Khana KarLo account for Customer, Business, and Rider access. Set up your Restaurant or Cloud Kitchen directly from your account.</Text><Pressable accessibilityRole="button" onPress={() => router.replace("/auth/login" as never)} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}><Text style={styles.primaryText}>Sign in to continue</Text><MaterialIcons name="arrow-forward" size={19} color="#FFFFFF" /></Pressable></View></ScreenContainer>;
   }
 

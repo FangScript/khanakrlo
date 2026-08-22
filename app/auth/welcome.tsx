@@ -1,14 +1,17 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Text, TextInput, View } from "react-native";
 
 import { OnboardingFrame, PrimaryButton, onboardingStyles } from "@/components/onboarding-ui";
 import { isValidPakistaniMobile, normalizePakistaniMobile } from "@/lib/customer-onboarding";
+import { getPhoneVerificationDestination, parseAuthReturnDestination } from "@/lib/registration-routing";
 
 export default function WelcomeScreen() {
+  const params = useLocalSearchParams<{ returnTo?: string | string[] }>();
   const [phone, setPhone] = useState("");
   const isValidPhone = isValidPakistaniMobile(phone);
+  const returnTo = parseAuthReturnDestination(params.returnTo);
 
   return (
     <OnboardingFrame step={1} title="Your next meal is close." subtitle="Enter your mobile number to find the restaurants that deliver to you.">
@@ -37,7 +40,7 @@ export default function WelcomeScreen() {
       </View>
 
       <View style={onboardingStyles.footer}>
-        <PrimaryButton label="Continue with phone" disabled={!isValidPhone} onPress={() => router.push(`/auth/verify?phone=${phone}` as never)} />
+        <PrimaryButton label="Continue with phone" disabled={!isValidPhone} onPress={() => router.push(getPhoneVerificationDestination(phone, returnTo) as never)} />
         <Text style={onboardingStyles.legalText}>By continuing, you agree to Khana KarLo’s Terms of Service and Privacy Policy.</Text>
       </View>
     </OnboardingFrame>

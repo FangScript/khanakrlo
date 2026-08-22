@@ -52,7 +52,7 @@ export default function BusinessOnboardingScreen() {
   };
 
   if (applicationQuery.isLoading) return <ScreenContainer><View style={styles.center}><ActivityIndicator color="#168A4A" /><Text style={styles.loading}>Loading Business onboarding…</Text></View></ScreenContainer>;
-  if (applicationQuery.error?.data?.code === "UNAUTHORIZED") return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.center}><Text style={styles.heading}>Sign in to start Business onboarding</Text><Pressable onPress={() => router.replace("/auth/login" as never)} style={styles.primary}><Text style={styles.primaryText}>Sign in</Text></Pressable></View></ScreenContainer>;
+  if (applicationQuery.error?.data?.code === "UNAUTHORIZED") return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.center}><Text style={styles.heading}>Sign in to start Business onboarding</Text><Pressable onPress={() => router.replace("/auth/login?returnTo=%2Fbusiness%2Fonboarding" as never)} style={styles.primary}><Text style={styles.primaryText}>Sign in</Text></Pressable></View></ScreenContainer>;
   if (!editable) return <ScreenContainer edges={["top", "bottom", "left", "right"]}><ScrollView contentContainerStyle={styles.content}><Header /><ReviewStatus status={application?.status ?? "approved"} note={application?.reviewNote} /><Pressable onPress={() => router.replace("/business/home" as never)} style={styles.secondary}><Text style={styles.secondaryText}>Open Business workspace</Text></Pressable></ScrollView></ScreenContainer>;
 
   const currentStep = steps[step];

@@ -6,16 +6,18 @@ import * as Location from "expo-location";
 
 import { AuthInput, OnboardingFrame, PrimaryButton, onboardingStyles } from "@/components/onboarding-ui";
 import { formatDeliveryAddress } from "@/lib/customer-onboarding";
+import { parseAuthReturnDestination } from "@/lib/registration-routing";
 import { useAuth } from "@/hooks/use-auth";
 import { useKhanaStore } from "@/lib/khana-store";
 
 export default function DeliveryLocationScreen() {
-  const params = useLocalSearchParams<{ phone?: string; name?: string }>();
+  const params = useLocalSearchParams<{ phone?: string; name?: string; returnTo?: string | string[] }>();
   const [address, setAddress] = useState("");
   const [locationState, setLocationState] = useState<"idle" | "loading" | "denied" | "ready">("idle");
   const { user } = useAuth();
   const { completeCustomerOnboarding } = useKhanaStore();
   const isReady = address.trim().length >= 3;
+  const returnTo = parseAuthReturnDestination(params.returnTo);
 
   const saveAndContinue = () => {
     if (!isReady) return;
@@ -24,7 +26,7 @@ export default function DeliveryLocationScreen() {
       phone: params.phone ?? "",
       deliveryAddress: formatDeliveryAddress(address),
     });
-    router.replace("/(tabs)" as never);
+    router.replace((returnTo ?? "/(tabs)") as never);
   };
 
   const useCurrentLocation = async () => {

@@ -109,3 +109,6 @@
 - [x] Add automatic self-service publication readiness checks without Admin review or publication holds.
 - [x] Preserve Admin support and emergency suspension tools without any Business approval workflow.
 - [x] Add deterministic coverage for direct Business activation, self-service publishing, and emergency-only suspension.
+- [x] Preserve the requested Business setup destination through phone login and OTP completion.
+- [x] Prevent authenticated Business signup from falling back to Customer Home before onboarding or workspace routing resolves.
+- [x] Add deterministic routing coverage for unauthenticated and authenticated Business setup entry paths.

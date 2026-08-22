@@ -1,16 +1,26 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, Text, TextInput, View } from "react-native";
 
 import { OnboardingFrame, PrimaryButton, onboardingStyles } from "@/components/onboarding-ui";
-import { getPostOtpRegistrationDestination } from "@/lib/registration-routing";
+import { establishPreviewPhoneSession } from "@/lib/preview-phone-session";
+import { getPostOtpRegistrationDestination, parseAuthReturnDestination } from "@/lib/registration-routing";
 
 export default function VerifyPhoneScreen() {
-  const params = useLocalSearchParams<{ phone?: string }>();
+  const params = useLocalSearchParams<{ phone?: string; returnTo?: string | string[] }>();
   const [code, setCode] = useState("");
   const phone = params.phone ?? "";
+  const returnTo = parseAuthReturnDestination(params.returnTo);
   const formattedPhone = useMemo(() => `+92 ${phone.slice(0, 3)} ${phone.slice(3, 6)} ${phone.slice(6)}`.trim(), [phone]);
+  const verify = async () => {
+    try {
+      await establishPreviewPhoneSession(phone);
+      router.replace(getPostOtpRegistrationDestination(phone, returnTo) as never);
+    } catch (error) {
+      Alert.alert("Could not complete phone verification", error instanceof Error ? error.message : "Please retry before continuing.");
+    }
+  };
 
   return (
     <OnboardingFrame step={3} title="Confirm it’s you." subtitle={`We sent a 6-digit code to ${formattedPhone}.`} onBack={() => router.back()}>
@@ -37,7 +47,7 @@ export default function VerifyPhoneScreen() {
       <View style={onboardingStyles.demoBadge}><Text style={onboardingStyles.demoBadgeText}>Preview mode: use any 6 digits</Text></View>
 
       <View style={onboardingStyles.footer}>
-        <PrimaryButton label="Verify number" disabled={code.length !== 6} onPress={() => router.replace(getPostOtpRegistrationDestination(phone) as never)} icon="check" />
+        <PrimaryButton label="Verify number" disabled={code.length !== 6} onPress={() => void verify()} icon="check" />
       </View>
     </OnboardingFrame>
   );
