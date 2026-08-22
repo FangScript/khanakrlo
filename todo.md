@@ -96,3 +96,4 @@
 - [ ] Add guest COD checkout, ownership-safe guest order tracking, location-aware discovery/search, and quote improvements.
 - [ ] Add order-linked support tickets, device notification preferences, and durable outbox-driven notification delivery foundations.
 - [x] Add a dedicated Customer Cart tab alongside Home, Orders, and Profile using the persisted cart and existing checkout flow.
+- [x] Refine the Pakistan mobile-number entry control so its +92 selector, input label, helper, and responsive spacing align as one unit.

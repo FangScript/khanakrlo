@@ -1,9 +1,9 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { Text, TextInput, View } from "react-native";
 
-import { AuthInput, OnboardingFrame, PrimaryButton, onboardingStyles } from "@/components/onboarding-ui";
+import { OnboardingFrame, PrimaryButton, onboardingStyles } from "@/components/onboarding-ui";
 import { isValidPakistaniMobile, normalizePakistaniMobile } from "@/lib/customer-onboarding";
 
 export default function WelcomeScreen() {
@@ -12,20 +12,23 @@ export default function WelcomeScreen() {
 
   return (
     <OnboardingFrame step={1} title="Your next meal is close." subtitle="Enter your mobile number to find the restaurants that deliver to you.">
-      <View style={onboardingStyles.phoneRow}>
-        <View style={onboardingStyles.countryCode}><Text style={onboardingStyles.countryCodeText}>+92</Text></View>
-        <View style={onboardingStyles.flexField}>
-          <AuthInput
-            label="Mobile number"
+      <View style={onboardingStyles.phoneField}>
+        <Text style={onboardingStyles.phoneLabel}>Mobile number</Text>
+        <View style={onboardingStyles.phoneRow}>
+          <View style={onboardingStyles.countryCode}><Text style={onboardingStyles.countryCodeText}>+92</Text></View>
+          <TextInput
             value={phone}
             onChangeText={(value) => setPhone(normalizePakistaniMobile(value))}
             placeholder="3XX XXX XXXX"
+            placeholderTextColor="#92A096"
+            selectionColor="#168A4A"
             keyboardType="phone-pad"
             returnKeyType="done"
             autoFocus
-            helper="We’ll send a one-time verification code."
+            style={onboardingStyles.phoneInput}
           />
         </View>
+        <Text style={onboardingStyles.phoneHelper}>We’ll send a one-time verification code.</Text>
       </View>
 
       <View style={onboardingStyles.callout}>

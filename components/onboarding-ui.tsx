@@ -89,10 +89,13 @@ export function PrimaryButton({ label, onPress, disabled = false, icon = "arrow-
 }
 
 export const onboardingStyles = StyleSheet.create({
-  phoneRow: { flexDirection: "row", gap: 10, alignItems: "flex-end" },
-  countryCode: { height: 54, minWidth: 78, paddingHorizontal: 14, borderRadius: 16, backgroundColor: "#E0F4E7", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#B6E2C4" },
+  phoneField: { width: "100%" },
+  phoneLabel: { color: "#17251D", fontSize: 12, lineHeight: 16, letterSpacing: 0.3, fontWeight: "900", marginBottom: 8 },
+  phoneRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  countryCode: { height: 54, width: 70, borderRadius: 16, backgroundColor: "#E0F4E7", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#B6E2C4" },
   countryCodeText: { color: "#064B2C", fontSize: 16, lineHeight: 20, fontWeight: "900" },
-  flexField: { flex: 1 },
+  phoneInput: { flex: 1, height: 54, borderWidth: 1, borderColor: "#DCE3DA", borderRadius: 16, backgroundColor: "#FFFFFF", paddingHorizontal: 15, color: "#17251D", fontSize: 16, lineHeight: 20, fontWeight: "700" },
+  phoneHelper: { color: "#748077", fontSize: 11, lineHeight: 16, fontWeight: "600", marginTop: 7, paddingLeft: 2 },
   callout: { marginTop: 18, backgroundColor: "#FFF1DA", borderRadius: 16, padding: 14, flexDirection: "row", gap: 10, alignItems: "flex-start" },
   calloutText: { flex: 1, color: "#6B4B12", fontSize: 12, lineHeight: 17, fontWeight: "600" },
   footer: { marginTop: "auto", paddingTop: 28 },
