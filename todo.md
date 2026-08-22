@@ -121,3 +121,7 @@
 - [x] Add customer-selected review-photo privacy controls for public, Business-only, and private-to-platform audiences.
 - [x] Add customer photo selection/upload and audience-appropriate review-photo displays.
 - [x] Add deterministic validation for review-photo ownership, privacy filtering, file constraints, and moderation behavior.
+- [x] Add direct camera capture beside gallery selection for review-photo attachments.
+- [x] Allow customers to change privacy or remove individual photos from their submitted reviews.
+- [x] Add user reporting for inappropriate public review photos with an auditable moderation queue.
+- [x] Add deterministic validation for review-photo edits, deletion ownership, and public-report access controls.

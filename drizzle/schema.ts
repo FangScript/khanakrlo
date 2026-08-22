@@ -340,10 +340,28 @@ export const reviewPhotos = mysqlTable("review_photos", {
   mimeType: varchar("mimeType", { length: 40 }).notNull(),
   byteSize: int("byteSize").notNull(),
   privacy: mysqlEnum("privacy", ["public", "business_only", "platform_only"]).default("business_only").notNull(),
+  removedAt: timestamp("removedAt"),
+  removedByUserId: int("removedByUserId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [
   index("review_photos_review_privacy_index").on(table.reviewId, table.privacy, table.createdAt),
   index("review_photos_customer_index").on(table.customerUserId, table.createdAt),
+]);
+
+/** Customer reports for public review photos; each is retained as an auditable moderation work item. */
+export const reviewPhotoReports = mysqlTable("review_photo_reports", {
+  id: int("id").autoincrement().primaryKey(),
+  photoId: int("photoId").notNull(),
+  reporterUserId: int("reporterUserId").notNull(),
+  reason: mysqlEnum("reason", ["nudity", "hate_or_harassment", "violence", "spam", "other"]).notNull(),
+  details: varchar("details", { length: 500 }),
+  status: mysqlEnum("status", ["open", "resolved", "dismissed"]).default("open").notNull(),
+  reviewedByUserId: int("reviewedByUserId"),
+  reviewedAt: timestamp("reviewedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("review_photo_reports_photo_reporter_index").on(table.photoId, table.reporterUserId, table.status),
+  index("review_photo_reports_status_created_index").on(table.status, table.createdAt),
 ]);
 
 /** One authoritative manual-dispatch assignment per order. Assignment is immutable for customer audit; reassignment is deliberately deferred. */

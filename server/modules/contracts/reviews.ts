@@ -22,5 +22,8 @@ export const reviewPhotoUploadInput = z.object({
   mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
   dataBase64: z.string().min(4).max(7_000_000),
 });
+export const reviewPhotoPrivacyUpdateInput = z.object({ photoId: z.number().int().positive(), privacy: z.enum(["public", "business_only", "platform_only"]) });
+export const reviewPhotoRemoveInput = z.object({ photoId: z.number().int().positive() });
+export const reviewPhotoReportInput = z.object({ photoId: z.number().int().positive(), reason: z.enum(["nudity", "hate_or_harassment", "violence", "spam", "other"]), details: z.string().trim().max(500).optional().transform((value) => value || undefined) });
 
 export type ReviewCreateInput = z.infer<typeof reviewCreateInput>;

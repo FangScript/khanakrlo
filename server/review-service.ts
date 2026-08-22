@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 
-import { accountProfiles, auditEvents, businessOrganisations, domainOutboxEvents, orderReviews, orders, reviewPhotos, workspaceMemberships } from "../drizzle/schema";
+import { accountProfiles, auditEvents, businessOrganisations, domainOutboxEvents, orderReviews, orders, reviewPhotoReports, reviewPhotos, workspaceMemberships } from "../drizzle/schema";
+import { isNull } from "drizzle-orm";
 import type { ReviewCreateInput } from "./modules/contracts/reviews";
 import { DomainError } from "./modules/gateway/domain-error";
 import { getDb } from "./db";
@@ -51,7 +52,7 @@ function canViewPhoto(privacy: "public" | "business_only" | "platform_only", aud
 
 async function serializeReview(db: any, review: typeof orderReviews.$inferSelect, audience: PhotoAudience = "public") {
   const profile = (await db.select().from(accountProfiles).where(eq(accountProfiles.userId, review.customerUserId)).limit(1))[0];
-  const photos = (await db.select().from(reviewPhotos).where(eq(reviewPhotos.reviewId, review.id))).filter((photo: typeof reviewPhotos.$inferSelect) => canViewPhoto(photo.privacy, audience));
+  const photos = (await db.select().from(reviewPhotos).where(and(eq(reviewPhotos.reviewId, review.id), isNull(reviewPhotos.removedAt)))).filter((photo: typeof reviewPhotos.$inferSelect) => canViewPhoto(photo.privacy, audience));
   const visiblePhotos = await Promise.all(photos.map(async (photo: typeof reviewPhotos.$inferSelect) => ({ id: photo.id, privacy: photo.privacy, url: await storageGetSignedUrl(photo.storageKey) })));
   return {
     id: review.id,
@@ -127,7 +128,7 @@ export async function uploadReviewPhoto(userId: number, input: { reviewId: numbe
   const db = await requireDb();
   const review = (await db.select().from(orderReviews).where(and(eq(orderReviews.id, input.reviewId), eq(orderReviews.customerUserId, userId))).limit(1))[0];
   if (!review) throw new DomainError("NOT_FOUND", "Review not found for this customer.");
-  const existing = await db.select().from(reviewPhotos).where(eq(reviewPhotos.reviewId, review.id));
+  const existing = await db.select().from(reviewPhotos).where(and(eq(reviewPhotos.reviewId, review.id), isNull(reviewPhotos.removedAt)));
   if (existing.length >= MAX_REVIEW_PHOTOS) throw new DomainError("CONFLICT", `A review can include up to ${MAX_REVIEW_PHOTOS} photos.`);
   const image = decodeReviewPhoto(input.dataBase64, input.mimeType);
   const storage = await storagePut(`review-photos/${review.organisationId}/${review.id}/${crypto.randomUUID()}.${image.extension}`, image.binary, input.mimeType);
@@ -139,6 +140,35 @@ export async function uploadReviewPhoto(userId: number, input: { reviewId: numbe
     await tx.insert(domainOutboxEvents).values({ domain: "reviews", eventType: "review.photo_uploaded", aggregateType: "order_review", aggregateId: String(review.id), payload: JSON.stringify({ reviewId: review.id, photoId: photo.id, privacy: input.privacy }), deduplicationKey: eventKey("review.photo_uploaded", photo.id) });
     return { id: photo.id, privacy: photo.privacy, url: await storageGetSignedUrl(photo.storageKey) };
   });
+}
+
+async function ownedActiveReviewPhoto(db: any, userId: number, photoId: number) {
+  const photo = (await db.select().from(reviewPhotos).where(and(eq(reviewPhotos.id, photoId), eq(reviewPhotos.customerUserId, userId), isNull(reviewPhotos.removedAt))).limit(1))[0];
+  if (!photo) throw new DomainError("NOT_FOUND", "Review photo not found for this customer.");
+  return photo;
+}
+
+export async function updateReviewPhotoPrivacy(userId: number, photoId: number, privacy: "public" | "business_only" | "platform_only") {
+  const db = await requireDb(); const photo = await ownedActiveReviewPhoto(db, userId, photoId);
+  await db.transaction(async (tx: any) => { await tx.update(reviewPhotos).set({ privacy }).where(eq(reviewPhotos.id, photo.id)); await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "review_photo", entityId: String(photo.id), action: "review_photo_privacy_updated", previousValue: JSON.stringify({ privacy: photo.privacy }), nextValue: JSON.stringify({ privacy }) }); await tx.insert(domainOutboxEvents).values({ domain: "reviews", eventType: "review.photo_privacy_updated", aggregateType: "order_review", aggregateId: String(photo.reviewId), payload: JSON.stringify({ reviewId: photo.reviewId, photoId: photo.id, privacy }), deduplicationKey: eventKey("review.photo_privacy_updated", photo.id) }); });
+  return { success: true } as const;
+}
+
+export async function removeReviewPhoto(userId: number, photoId: number) {
+  const db = await requireDb(); const photo = await ownedActiveReviewPhoto(db, userId, photoId); const removedAt = new Date();
+  await db.transaction(async (tx: any) => { await tx.update(reviewPhotos).set({ removedAt, removedByUserId: userId }).where(eq(reviewPhotos.id, photo.id)); await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "review_photo", entityId: String(photo.id), action: "review_photo_removed", previousValue: JSON.stringify({ privacy: photo.privacy, storageKey: photo.storageKey }), nextValue: JSON.stringify({ removedAt: removedAt.toISOString() }) }); await tx.insert(domainOutboxEvents).values({ domain: "reviews", eventType: "review.photo_removed", aggregateType: "order_review", aggregateId: String(photo.reviewId), payload: JSON.stringify({ reviewId: photo.reviewId, photoId: photo.id }), deduplicationKey: eventKey("review.photo_removed", photo.id) }); });
+  return { success: true } as const;
+}
+
+export async function reportPublicReviewPhoto(userId: number, input: { photoId: number; reason: "nudity" | "hate_or_harassment" | "violence" | "spam" | "other"; details?: string }) {
+  const db = await requireDb(); const photo = (await db.select().from(reviewPhotos).where(and(eq(reviewPhotos.id, input.photoId), eq(reviewPhotos.privacy, "public"), isNull(reviewPhotos.removedAt))).limit(1))[0];
+  if (!photo) throw new DomainError("NOT_FOUND", "Only an active public review photo can be reported.");
+  const review = (await db.select().from(orderReviews).where(and(eq(orderReviews.id, photo.reviewId), eq(orderReviews.visibility, "published"))).limit(1))[0];
+  if (!review) throw new DomainError("NOT_FOUND", "This public review photo is unavailable.");
+  const existing = (await db.select().from(reviewPhotoReports).where(and(eq(reviewPhotoReports.photoId, photo.id), eq(reviewPhotoReports.reporterUserId, userId), eq(reviewPhotoReports.status, "open"))).limit(1))[0];
+  if (existing) throw new DomainError("CONFLICT", "You have already reported this photo.");
+  await db.transaction(async (tx: any) => { await tx.insert(reviewPhotoReports).values({ photoId: photo.id, reporterUserId: userId, reason: input.reason, details: input.details ?? null }); const report = (await tx.select().from(reviewPhotoReports).where(and(eq(reviewPhotoReports.photoId, photo.id), eq(reviewPhotoReports.reporterUserId, userId), eq(reviewPhotoReports.status, "open"))).limit(1))[0]; if (!report) throw new DomainError("INTERNAL", "Photo report could not be recorded."); await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "review_photo_report", entityId: String(report.id), action: "review_photo_reported", nextValue: JSON.stringify({ photoId: photo.id, reviewId: review.id, reason: input.reason }) }); await tx.insert(domainOutboxEvents).values({ domain: "reviews", eventType: "review.photo_reported", aggregateType: "order_review", aggregateId: String(review.id), payload: JSON.stringify({ reportId: report.id, photoId: photo.id, reason: input.reason }), deduplicationKey: eventKey("review.photo_reported", report.id) }); });
+  return { success: true } as const;
 }
 
 export async function replyToReview(userId: number, reviewId: number, reply: string) {
