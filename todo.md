@@ -203,3 +203,5 @@
 - [x] Add an accessible Admin sign-in rate-limit message with a live retry countdown and disabled submit state.
 - [x] Add deterministic validation for retry timing, countdown formatting, and rate-limit user feedback.
 - [x] Push the latest validated Admin security and credential sign-in milestone to GitHub.
+- [x] Audit Foodpanda’s public customer, Business, Rider, and operational capabilities against Khana KarLo.
+- [x] Produce a prioritized, Pakistan-pilot-appropriate capability gap roadmap without changing approved self-service Business or commission policies.
