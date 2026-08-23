@@ -4,7 +4,7 @@ export type RiderCommandPayload =
   | { type: "offer_decision"; orderId: number; decision: "accept" | "decline"; note?: string }
   | { type: "transition"; orderId: number; toStatus: "picked_up" | "delivered"; note?: string }
   | { type: "cod_collection"; orderId: number; collectedMinor: number; varianceReason?: string }
-  | { type: "location_update"; orderId: number; latitudeE6: number; longitudeE6: number; accuracyMeters?: number }
+  | { type: "location_update"; orderId: number; latitudeE6: number; longitudeE6: number; accuracyMeters?: number; source?: "foreground" | "background"; deviceObservedAt?: string }
   | { type: "availability"; status: "online" | "offline" };
 
 export type QueuedRiderCommand = RiderCommandPayload & { idempotencyKey: string; queuedAt: number; attempts: number };

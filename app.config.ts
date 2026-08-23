@@ -64,7 +64,7 @@ const config: ExpoConfig = {
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
     package: env.androidPackage,
-    permissions: ["POST_NOTIFICATIONS", "ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+    permissions: ["POST_NOTIFICATIONS", "ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION"],
     intentFilters: [
       {
         action: "VIEW",
@@ -99,7 +99,11 @@ const config: ExpoConfig = {
     [
       "expo-location",
       {
-        "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to pin delivery addresses, verify Restaurant service zones, and share a Rider location during an active delivery."
+        "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to pin delivery addresses, verify Restaurant service zones, and share a Rider location during an active delivery.",
+        "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to share your location only while you are completing an accepted delivery, including when the app is in the background.",
+        "isIosBackgroundLocationEnabled": true,
+        "isAndroidBackgroundLocationEnabled": true,
+        "isAndroidForegroundServiceEnabled": true
       }
     ],
     [

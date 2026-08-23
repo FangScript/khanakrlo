@@ -19,6 +19,7 @@ export const orderPlaceInput = orderQuoteInput.extend({
 }).strict();
 
 export const orderByIdInput = z.object({ orderId: z.number().int().positive() });
+export const deliveryRouteInput = orderByIdInput;
 export const orderTransitionInput = z.object({ orderId: z.number().int().positive(), toStatus: z.enum(ORDER_STATUSES), note: z.string().trim().max(500).optional() });
 export const riderAssignmentInput = z.object({ orderId: z.number().int().positive(), riderUserId: z.number().int().positive() }).strict();
 export const kitchenOrderAcknowledgementInput = z.object({ orderId: z.number().int().positive() }).strict();
@@ -42,7 +43,9 @@ export const codCollectionConfirmInput = z.object({
 }).strict().superRefine((input, context) => {
   if (input.varianceReason !== undefined && input.varianceReason.length < 3) context.addIssue({ code: z.ZodIssueCode.custom, path: ["varianceReason"], message: "Provide a meaningful variance reason." });
 });
-export const riderLocationUpdateInput = z.object({ orderId: z.number().int().positive(), latitudeE6: z.number().int().min(-90_000_000).max(90_000_000), longitudeE6: z.number().int().min(-180_000_000).max(180_000_000), accuracyMeters: z.number().int().min(0).max(10_000).optional() }).strict();
+export const riderLocationUpdateInput = z.object({ orderId: z.number().int().positive(), latitudeE6: z.number().int().min(-90_000_000).max(90_000_000), longitudeE6: z.number().int().min(-180_000_000).max(180_000_000), accuracyMeters: z.number().int().min(0).max(10_000).optional(), source: z.enum(["foreground", "background"]).optional(), deviceObservedAt: z.string().datetime({ offset: true }).optional() }).strict();
+export const riderTrackingStartInput = z.object({ orderId: z.number().int().positive() }).strict();
+export const riderTrackingStateInput = z.object({ orderId: z.number().int().positive(), action: z.enum(["pause", "resume", "stop"]) }).strict();
 const riderCommandKey = z.string().trim().min(16).max(120);
 const riderCodCollectionCommandInput = z.object({
   type: z.literal("cod_collection"),

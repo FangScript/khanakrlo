@@ -10,6 +10,7 @@ import {
   businessStaffMemberships,
   cloudKitchens,
   customerAddresses,
+  deliveryRouteSnapshots,
   codCollections,
   domainOutboxEvents,
   dispatchScoreSnapshots,
@@ -30,6 +31,7 @@ import {
   riderCashSettlementReceipts,
   riderCommandReceipts,
   riderLocationUpdates,
+  riderTrackingSessions,
   serviceZones,
   settlementLedgerEntries,
   workspaceMemberships,
@@ -41,6 +43,7 @@ import type { OrderPlaceInput, OrderQuoteInput, RiderCashHistoryFilterInput, Rid
 import { DomainError } from "./modules/gateway/domain-error";
 import { getDb } from "./db";
 import { createUserNotification } from "./notification-service";
+import { computeDeliveryRoute } from "./delivery-routing-service";
 
 async function requireDb() {
   const db = await getDb();
@@ -167,14 +170,16 @@ async function requireActiveRider(db: any, userId: number) {
 async function hydrateOrder(db: any, order: typeof orders.$inferSelect) {
   const lines = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
   const lineIds = lines.map((line: typeof orderItems.$inferSelect) => line.id);
-  const [modifiers, history, assignmentRows] = await Promise.all([
+  const [modifiers, history, assignmentRows, trackingRows] = await Promise.all([
     lineIds.length ? db.select().from(orderItemModifiers).where(inArray(orderItemModifiers.orderItemId, lineIds)) : [],
     db.select().from(orderStatusHistory).where(eq(orderStatusHistory.orderId, order.id)),
     db.select().from(riderAssignments).where(eq(riderAssignments.orderId, order.id)).limit(1),
+    db.select().from(riderTrackingSessions).where(and(eq(riderTrackingSessions.orderId, order.id), eq(riderTrackingSessions.status, "active"))).limit(1),
   ]);
   const assignment = assignmentRows[0] ?? null;
+  const trackingSession = trackingRows[0] ?? null;
   const profile = assignment ? (await db.select().from(accountProfiles).where(eq(accountProfiles.userId, assignment.riderUserId)).limit(1))[0] ?? null : null;
-  const latest = assignment && (order.status === "assigned" || order.status === "picked_up") ? (await db.select().from(riderLocationUpdates).where(and(eq(riderLocationUpdates.orderId, order.id), eq(riderLocationUpdates.riderUserId, assignment.riderUserId))).orderBy(desc(riderLocationUpdates.createdAt)).limit(1))[0] ?? null : null;
+  const latest = assignment && trackingSession && (order.status === "assigned" || order.status === "picked_up") ? (await db.select().from(riderLocationUpdates).where(and(eq(riderLocationUpdates.orderId, order.id), eq(riderLocationUpdates.riderUserId, assignment.riderUserId))).orderBy(desc(riderLocationUpdates.createdAt)).limit(1))[0] ?? null : null;
   const freshnessSeconds = latest ? Math.max(0, Math.floor((Date.now() - latest.createdAt.getTime()) / 1_000)) : null;
   return { ...order, lines: lines.map((line: typeof orderItems.$inferSelect) => ({ ...line, modifiers: modifiers.filter((modifier: typeof orderItemModifiers.$inferSelect) => modifier.orderItemId === line.id) })), history, rider: assignment ? { riderUserId: assignment.riderUserId, displayName: profile?.givenName ?? "Your Rider", assignedAt: assignment.assignedAt, location: latest ? { latitudeE6: latest.latitudeE6, longitudeE6: latest.longitudeE6, accuracyMeters: latest.accuracyMeters, updatedAt: latest.createdAt, freshnessSeconds, isFresh: freshnessSeconds !== null && freshnessSeconds <= 90 } : null } : null };
 }
@@ -237,6 +242,18 @@ export async function getOrderForActor(userId: number, orderId: number) {
     }
   }
   return hydrateOrder(db, order);
+}
+
+/** Returns an advisory live-delivery route only to an actor already authorized to open the order. */
+export async function getDeliveryRouteForActor(userId: number, orderId: number) {
+  const db = await requireDb();
+  const order = await getOrderForActor(userId, orderId);
+  const riderLocation = order.rider?.location;
+  if (!riderLocation || order.deliveryLatitudeE6 === null || order.deliveryLongitudeE6 === null) return { status: "provider_unavailable" as const, provider: "none" as const, routeRevision: null, distanceMeters: null, durationSeconds: null, etaMinutes: null, encodedPolyline: null, metadata: { reason: "A fresh Rider position and delivery coordinate are required." } };
+  const result = await computeDeliveryRoute({ latitudeE6: riderLocation.latitudeE6, longitudeE6: riderLocation.longitudeE6 }, { latitudeE6: order.deliveryLatitudeE6, longitudeE6: order.deliveryLongitudeE6 });
+  const existing = (await db.select().from(deliveryRouteSnapshots).where(and(eq(deliveryRouteSnapshots.orderId, orderId), eq(deliveryRouteSnapshots.routeRevision, result.routeRevision))).limit(1))[0];
+  if (!existing) await db.insert(deliveryRouteSnapshots).values({ orderId, status: result.status, distanceMeters: result.distanceMeters, durationSeconds: result.durationSeconds, etaMinutes: result.etaMinutes, provider: result.provider, routeRevision: result.routeRevision, responseMetadataJson: JSON.stringify(result.metadata) });
+  return result;
 }
 
 export async function listBusinessOrders(userId: number) {
@@ -513,6 +530,7 @@ export async function transitionRiderOrder(userId: number, input: { orderId: num
     if (input.toStatus === "delivered" && order.paymentMethod === "cod" && order.paymentStatus !== "paid") throw new DomainError("CONFLICT", "Confirm COD collection before marking this order delivered.");
     const now = new Date();
     await tx.update(orders).set({ status: input.toStatus, updatedAt: now }).where(eq(orders.id, order.id));
+    if (input.toStatus === "delivered") await tx.update(riderTrackingSessions).set({ status: "ended", endedAt: now, endedReason: "delivery_completed", updatedAt: now }).where(and(eq(riderTrackingSessions.orderId, order.id), eq(riderTrackingSessions.riderUserId, userId), eq(riderTrackingSessions.status, "active")));
     await tx.insert(orderStatusHistory).values({ orderId: order.id, fromStatus: order.status, toStatus: input.toStatus, actorUserId: userId, note: input.note ?? null });
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "order", entityId: String(order.id), action: `rider_order_${input.toStatus}`, previousValue: JSON.stringify({ status: order.status }), nextValue: JSON.stringify({ status: input.toStatus, note: input.note ?? null }) });
     await tx.insert(domainOutboxEvents).values({ domain: "orders", eventType: `order.${input.toStatus}`, aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, riderUserId: userId, fromStatus: order.status, toStatus: input.toStatus }), deduplicationKey: eventKey(`order.${input.toStatus}`, order.id) });
@@ -558,7 +576,52 @@ export async function confirmCodCollection(userId: number, input: { orderId: num
   });
 }
 
-export async function updateRiderLocation(userId: number, input: { orderId: number; latitudeE6: number; longitudeE6: number; accuracyMeters?: number }) {
+export async function startRiderTrackingSession(userId: number, orderId: number) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  return db.transaction(async (tx) => {
+    const order = (await tx.select().from(orders).where(eq(orders.id, orderId)).limit(1))[0];
+    const assignment = (await tx.select().from(riderAssignments).where(eq(riderAssignments.orderId, orderId)).limit(1))[0];
+    if (!order || !assignment) throw new DomainError("NOT_FOUND", "Assigned delivery not found.");
+    if (assignment.riderUserId !== userId) throw new DomainError("FORBIDDEN", "This delivery is assigned to another Rider.");
+    if (order.status !== "assigned" && order.status !== "picked_up") throw new DomainError("CONFLICT", "Location sharing is available only while travelling on an active delivery.");
+    const now = new Date();
+    const existing = (await tx.select().from(riderTrackingSessions).where(eq(riderTrackingSessions.orderId, orderId)).limit(1))[0];
+    if (existing?.status === "ended") throw new DomainError("CONFLICT", "This delivery tracking session has already ended.");
+    if (existing?.status === "active") return { ...existing, duplicate: true };
+    if (existing) await tx.update(riderTrackingSessions).set({ status: "active", pausedAt: null, endedAt: null, endedReason: null, updatedAt: now }).where(eq(riderTrackingSessions.id, existing.id));
+    else await tx.insert(riderTrackingSessions).values({ orderId, riderUserId: userId, status: "active", consentGrantedAt: now, startedAt: now });
+    const session = (await tx.select().from(riderTrackingSessions).where(eq(riderTrackingSessions.orderId, orderId)).limit(1))[0]!;
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_tracking_session", entityId: String(session.id), action: "rider_tracking_started", nextValue: JSON.stringify({ orderId }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "delivery", eventType: "rider.tracking_started", aggregateType: "order", aggregateId: String(orderId), payload: JSON.stringify({ orderId, riderUserId: userId, startedAt: now.toISOString() }), deduplicationKey: eventKey("rider.tracking_started", orderId) });
+    return { ...session, duplicate: false };
+  });
+}
+
+export async function setRiderTrackingSessionState(userId: number, input: { orderId: number; action: "pause" | "resume" | "stop" }) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  return db.transaction(async (tx) => {
+    const session = (await tx.select().from(riderTrackingSessions).where(and(eq(riderTrackingSessions.orderId, input.orderId), eq(riderTrackingSessions.riderUserId, userId))).limit(1))[0];
+    if (!session) throw new DomainError("NOT_FOUND", "Tracking is not active for this delivery.");
+    if (session.status === "ended") return { ...session, duplicate: true };
+    const now = new Date();
+    if (input.action === "pause") await tx.update(riderTrackingSessions).set({ status: "paused", pausedAt: now, endedAt: null, endedReason: "rider_paused", updatedAt: now }).where(eq(riderTrackingSessions.id, session.id));
+    else if (input.action === "resume") await tx.update(riderTrackingSessions).set({ status: "active", pausedAt: null, endedAt: null, endedReason: null, updatedAt: now }).where(eq(riderTrackingSessions.id, session.id));
+    else await tx.update(riderTrackingSessions).set({ status: "ended", pausedAt: null, endedAt: now, endedReason: "rider_stopped", updatedAt: now }).where(eq(riderTrackingSessions.id, session.id));
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_tracking_session", entityId: String(session.id), action: `rider_tracking_${input.action}`, nextValue: JSON.stringify({ orderId: input.orderId }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "delivery", eventType: `rider.tracking_${input.action}`, aggregateType: "order", aggregateId: String(input.orderId), payload: JSON.stringify({ orderId: input.orderId, riderUserId: userId, action: input.action, occurredAt: now.toISOString() }), deduplicationKey: eventKey(`rider.tracking_${input.action}`, input.orderId) });
+    return (await tx.select().from(riderTrackingSessions).where(eq(riderTrackingSessions.id, session.id)).limit(1))[0]!;
+  });
+}
+
+export async function getRiderTrackingSession(userId: number, orderId: number) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  return (await db.select().from(riderTrackingSessions).where(and(eq(riderTrackingSessions.orderId, orderId), eq(riderTrackingSessions.riderUserId, userId))).limit(1))[0] ?? null;
+}
+
+export async function updateRiderLocation(userId: number, input: { orderId: number; latitudeE6: number; longitudeE6: number; accuracyMeters?: number; source?: "foreground" | "background"; deviceObservedAt?: Date }) {
   const db = await requireDb();
   await requireActiveRider(db, userId);
   return db.transaction(async (tx) => {
@@ -567,9 +630,15 @@ export async function updateRiderLocation(userId: number, input: { orderId: numb
     if (!order || !assignment) throw new DomainError("NOT_FOUND", "Assigned delivery not found.");
     if (assignment.riderUserId !== userId) throw new DomainError("FORBIDDEN", "This delivery is assigned to another Rider.");
     if (order.status !== "assigned" && order.status !== "picked_up") throw new DomainError("CONFLICT", "Location sharing is available only while travelling on an active delivery.");
+    const session = (await tx.select().from(riderTrackingSessions).where(and(eq(riderTrackingSessions.orderId, order.id), eq(riderTrackingSessions.riderUserId, userId))).limit(1))[0];
+    if (!session || session.status !== "active") throw new DomainError("CONFLICT", "Start delivery location sharing before sending a Rider position.");
     const now = new Date();
-    await tx.insert(riderLocationUpdates).values({ orderId: order.id, riderUserId: userId, latitudeE6: input.latitudeE6, longitudeE6: input.longitudeE6, accuracyMeters: input.accuracyMeters ?? null, createdAt: now });
-    await tx.insert(domainOutboxEvents).values({ domain: "delivery", eventType: "rider.location_updated", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, riderUserId: userId, latitudeE6: input.latitudeE6, longitudeE6: input.longitudeE6, accuracyMeters: input.accuracyMeters ?? null, receivedAt: now.toISOString() }), deduplicationKey: eventKey("rider.location_updated", order.id) });
+    if (input.deviceObservedAt && Math.abs(now.getTime() - input.deviceObservedAt.getTime()) > 5 * 60_000) throw new DomainError("VALIDATION", "Location samples must be observed within five minutes of submission.");
+    const prior = (await tx.select().from(riderLocationUpdates).where(and(eq(riderLocationUpdates.orderId, order.id), eq(riderLocationUpdates.riderUserId, userId))).orderBy(desc(riderLocationUpdates.createdAt)).limit(1))[0];
+    if (prior && now.getTime() - prior.createdAt.getTime() < 5_000) throw new DomainError("CONFLICT", "Location updates are limited to one sample every five seconds.");
+    await tx.insert(riderLocationUpdates).values({ orderId: order.id, riderUserId: userId, latitudeE6: input.latitudeE6, longitudeE6: input.longitudeE6, accuracyMeters: input.accuracyMeters ?? null, source: input.source ?? "foreground", deviceObservedAt: input.deviceObservedAt ?? null, createdAt: now });
+    await tx.update(riderTrackingSessions).set({ lastLocationAt: now, updatedAt: now }).where(eq(riderTrackingSessions.id, session.id));
+    await tx.insert(domainOutboxEvents).values({ domain: "delivery", eventType: "rider.location_updated", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, riderUserId: userId, latitudeE6: input.latitudeE6, longitudeE6: input.longitudeE6, accuracyMeters: input.accuracyMeters ?? null, source: input.source ?? "foreground", receivedAt: now.toISOString() }), deduplicationKey: eventKey("rider.location_updated", order.id) });
     return { updatedAt: now };
   });
 }
@@ -610,7 +679,7 @@ export async function executeRiderCommand(userId: number, input: RiderCommandInp
     if (input.type === "offer_decision") result = await respondToRiderOffer(userId, { orderId: input.orderId, decision: input.decision, note: input.note });
     else if (input.type === "transition") result = await transitionRiderOrder(userId, { orderId: input.orderId, toStatus: input.toStatus, note: input.note });
     else if (input.type === "cod_collection") result = await confirmCodCollection(userId, { orderId: input.orderId, collectedMinor: input.collectedMinor, varianceReason: input.varianceReason });
-    else if (input.type === "location_update") result = await updateRiderLocation(userId, { orderId: input.orderId, latitudeE6: input.latitudeE6, longitudeE6: input.longitudeE6, accuracyMeters: input.accuracyMeters });
+    else if (input.type === "location_update") result = await updateRiderLocation(userId, { orderId: input.orderId, latitudeE6: input.latitudeE6, longitudeE6: input.longitudeE6, accuracyMeters: input.accuracyMeters, source: input.source, deviceObservedAt: input.deviceObservedAt ? new Date(input.deviceObservedAt) : undefined });
     else result = await setRiderAvailability(userId, input.status);
     await db.update(riderCommandReceipts).set({ status: "succeeded", resultJson: JSON.stringify(result), processedAt: new Date(), updatedAt: new Date() }).where(eq(riderCommandReceipts.id, receipt.id));
     await db.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_command", entityId: String(receipt.id), action: "rider_command_succeeded", nextValue: JSON.stringify({ type: input.type, orderId: "orderId" in input ? input.orderId : null, idempotencyKey: input.idempotencyKey }) });

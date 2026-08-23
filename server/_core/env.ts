@@ -13,4 +13,6 @@ export const ENV = {
   securityAlertTo: process.env.SECURITY_ALERT_TO ?? "",
   adminBootstrapUsername: process.env.ADMIN_BOOTSTRAP_USERNAME ?? "",
   adminBootstrapPassword: process.env.ADMIN_BOOTSTRAP_PASSWORD ?? "",
+  googleMapsServerApiKey: process.env.GOOGLE_MAPS_SERVER_API_KEY ?? "",
+  redisUrl: process.env.REDIS_URL ?? "",
 };

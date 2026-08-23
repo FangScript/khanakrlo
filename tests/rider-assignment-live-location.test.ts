@@ -33,6 +33,6 @@ describe("Rider assignment and foreground live location", () => {
     expect(rider).toContain("watchPositionAsync");
     expect(rider).not.toContain("useRiderStore");
     expect(customer).toContain("freshnessSeconds");
-    expect(customer).toContain("View live Rider location");
+    expect(customer).toContain("DeliveryTrackingMap");
   });
 });

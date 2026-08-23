@@ -10,7 +10,7 @@ import { discoveryService } from "./modules/discovery/service";
 import { callDomain } from "./modules/gateway/domain-error";
 import { identityWorkspaceService } from "./modules/identity-workspace/service";
 import { orderService } from "./modules/orders/service";
-import { codCollectionConfirmInput, dispatchRecommendationInput, kitchenOrderAcknowledgementInput, orderByIdInput, orderPlaceInput, orderQuoteInput, orderTransitionInput, riderAssignmentInput, riderAvailabilityInput, riderCashHistoryFilterInput, riderCashRemittanceInput, riderCommandInput, riderLocationUpdateInput, riderOfferDecisionInput, riderOrderTransitionInput, riderSettlementReceiptInput } from "./modules/contracts/orders";
+import { codCollectionConfirmInput, deliveryRouteInput, dispatchRecommendationInput, kitchenOrderAcknowledgementInput, orderByIdInput, orderPlaceInput, orderQuoteInput, orderTransitionInput, riderAssignmentInput, riderAvailabilityInput, riderCashHistoryFilterInput, riderCashRemittanceInput, riderCommandInput, riderLocationUpdateInput, riderOfferDecisionInput, riderOrderTransitionInput, riderSettlementReceiptInput, riderTrackingStartInput, riderTrackingStateInput } from "./modules/contracts/orders";
 import { addressService } from "./modules/addresses/service";
 import { customerAddressCreateInput, customerAddressIdInput, customerAddressUpdateInput } from "./modules/contracts/addresses";
 import { reviewBusinessInput, reviewCreateInput, reviewModerationInput, reviewOrderInput, reviewPhotoRemoveInput, reviewPhotoReportInput, reviewPhotoUploadInput, reviewPhotoPrivacyUpdateInput, reviewReplyInput } from "./modules/contracts/reviews";
@@ -114,6 +114,7 @@ export const appRouter = router({
     place: protectedProcedure.input(orderPlaceInput).mutation(({ ctx, input }) => callDomain(() => orderService.place(ctx.user.id, input))),
     mine: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.mine(ctx.user.id))),
     byId: protectedProcedure.input(orderByIdInput).query(({ ctx, input }) => callDomain(() => orderService.byId(ctx.user.id, input.orderId))),
+    deliveryRoute: protectedProcedure.input(deliveryRouteInput).query(({ ctx, input }) => callDomain(() => orderService.deliveryRoute(ctx.user.id, input.orderId))),
     businessQueue: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.businessQueue(ctx.user.id))),
     transition: protectedProcedure.input(orderTransitionInput).mutation(({ ctx, input }) => callDomain(() => orderService.transition(ctx.user.id, input))),
     acknowledgeKitchenOrder: protectedProcedure.input(kitchenOrderAcknowledgementInput).mutation(({ ctx, input }) => callDomain(() => orderService.acknowledgeKitchenOrder(ctx.user.id, input.orderId))),
@@ -134,7 +135,10 @@ export const appRouter = router({
     riderQueue: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderQueue(ctx.user.id))),
     riderTransition: protectedProcedure.input(riderOrderTransitionInput).mutation(({ ctx, input }) => callDomain(() => orderService.riderTransition(ctx.user.id, input))),
     confirmCodCollection: protectedProcedure.input(codCollectionConfirmInput).mutation(({ ctx, input }) => callDomain(() => orderService.confirmCodCollection(ctx.user.id, input))),
-    updateRiderLocation: protectedProcedure.input(riderLocationUpdateInput).mutation(({ ctx, input }) => callDomain(() => orderService.updateRiderLocation(ctx.user.id, input))),
+    riderTrackingSession: protectedProcedure.input(riderTrackingStartInput).query(({ ctx, input }) => callDomain(() => orderService.riderTrackingSession(ctx.user.id, input.orderId))),
+    startRiderTracking: protectedProcedure.input(riderTrackingStartInput).mutation(({ ctx, input }) => callDomain(() => orderService.startRiderTracking(ctx.user.id, input.orderId))),
+    setRiderTrackingState: protectedProcedure.input(riderTrackingStateInput).mutation(({ ctx, input }) => callDomain(() => orderService.setRiderTrackingState(ctx.user.id, input))),
+    updateRiderLocation: protectedProcedure.input(riderLocationUpdateInput).mutation(({ ctx, input }) => callDomain(() => orderService.updateRiderLocation(ctx.user.id, { ...input, deviceObservedAt: input.deviceObservedAt ? new Date(input.deviceObservedAt) : undefined }))),
     executeRiderCommand: protectedProcedure.input(riderCommandInput).mutation(({ ctx, input }) => callDomain(() => orderService.executeRiderCommand(ctx.user.id, input))),
   }),
   notifications: router({

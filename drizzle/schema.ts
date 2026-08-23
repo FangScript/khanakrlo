@@ -533,6 +533,25 @@ export const dispatchScoreSnapshots = mysqlTable("dispatch_score_snapshots", {
   id: int("id").autoincrement().primaryKey(), orderId: int("orderId").notNull(), riderUserId: int("riderUserId").notNull(), score: int("score").notNull(), activeWorkload: int("activeWorkload").notNull(), availabilityAgeSeconds: int("availabilityAgeSeconds").notNull(), eligibility: mysqlEnum("eligibility", ["eligible", "ineligible"]).notNull(), explanationJson: text("explanationJson").notNull(), computedAt: timestamp("computedAt").defaultNow().notNull(),
 }, (table) => [uniqueIndex("dispatch_score_order_rider_unique").on(table.orderId, table.riderUserId), index("dispatch_score_order_rank_index").on(table.orderId, table.eligibility, table.score)]);
 
+/** A Rider may share location only during one assigned delivery session; ending this record prevents further location ingestion. */
+export const riderTrackingSessions = mysqlTable("rider_tracking_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  riderUserId: int("riderUserId").notNull(),
+  status: mysqlEnum("status", ["active", "paused", "ended"]).default("active").notNull(),
+  consentGrantedAt: timestamp("consentGrantedAt").notNull(),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  pausedAt: timestamp("pausedAt"),
+  endedAt: timestamp("endedAt"),
+  endedReason: mysqlEnum("endedReason", ["delivery_completed", "order_cancelled", "rider_paused", "rider_stopped", "session_replaced"]),
+  lastLocationAt: timestamp("lastLocationAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("rider_tracking_sessions_order_unique").on(table.orderId),
+  index("rider_tracking_sessions_rider_status_index").on(table.riderUserId, table.status, table.updatedAt),
+]);
+
 /** Append-only, foreground rider position updates; only the freshest active-delivery point is shown to a customer. */
 export const riderLocationUpdates = mysqlTable("rider_location_updates", {
   id: int("id").autoincrement().primaryKey(),
@@ -541,8 +560,27 @@ export const riderLocationUpdates = mysqlTable("rider_location_updates", {
   latitudeE6: int("latitudeE6").notNull(),
   longitudeE6: int("longitudeE6").notNull(),
   accuracyMeters: int("accuracyMeters"),
+  source: mysqlEnum("source", ["foreground", "background"]).default("foreground").notNull(),
+  deviceObservedAt: timestamp("deviceObservedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [index("rider_location_updates_order_created_index").on(table.orderId, table.createdAt), index("rider_location_updates_rider_created_index").on(table.riderUserId, table.createdAt)]);
+
+/** Cached route/ETA facts are advisory and provider-independent; they never alter an order price or financial ledger. */
+export const deliveryRouteSnapshots = mysqlTable("delivery_route_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  status: mysqlEnum("status", ["estimated", "provider_unavailable", "failed"]).default("estimated").notNull(),
+  distanceMeters: int("distanceMeters"),
+  durationSeconds: int("durationSeconds"),
+  etaMinutes: int("etaMinutes"),
+  provider: varchar("provider", { length: 80 }).notNull(),
+  routeRevision: varchar("routeRevision", { length: 100 }).notNull(),
+  responseMetadataJson: varchar("responseMetadataJson", { length: 2_000 }).notNull().default("{}"),
+  computedAt: timestamp("computedAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("delivery_route_snapshots_order_revision_unique").on(table.orderId, table.routeRevision),
+  index("delivery_route_snapshots_order_computed_index").on(table.orderId, table.computedAt),
+]);
 
 export const businessDocuments = mysqlTable("business_documents", {
   id: int("id").autoincrement().primaryKey(), applicationId: int("applicationId").notNull(), organisationId: int("organisationId"), uploadedByUserId: int("uploadedByUserId").notNull(), documentType: mysqlEnum("documentType", BUSINESS_DOCUMENT_TYPES).notNull(), status: mysqlEnum("status", BUSINESS_DOCUMENT_STATUSES).default("uploaded").notNull(), storageKey: varchar("storageKey", { length: 500 }).notNull(), originalName: varchar("originalName", { length: 255 }).notNull(), mimeType: varchar("mimeType", { length: 120 }).notNull(), sizeBytes: int("sizeBytes").notNull(), reviewerNote: varchar("reviewerNote", { length: 1000 }), reviewedByUserId: int("reviewedByUserId"), reviewedAt: timestamp("reviewedAt"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -577,3 +615,6 @@ export type Order = typeof orders.$inferSelect;
 export type OrderItem = typeof orderItems.$inferSelect;
 export type OrderItemModifier = typeof orderItemModifiers.$inferSelect;
 export type OrderStatusHistory = typeof orderStatusHistory.$inferSelect;
+export type RiderTrackingSession = typeof riderTrackingSessions.$inferSelect;
+export type RiderLocationUpdate = typeof riderLocationUpdates.$inferSelect;
+export type DeliveryRouteSnapshot = typeof deliveryRouteSnapshots.$inferSelect;

@@ -212,3 +212,9 @@
 - [x] Add order-linked customer support cases with chat-style messages, operational status, and Admin escalation context.
 - [x] Add Rider, Customer, Business, and Admin interfaces for command sync, notifications, statements, dispatch recommendations, and support cases.
 - [x] Add deterministic validation for offline idempotency, notification privacy, financial ledger integrity, scoring eligibility, and order-linked support ownership.
+- [x] Add delivery-scoped Rider tracking sessions, consent controls, and privacy-safe historical location records.
+- [x] Add authoritative Rider location ingestion with lifecycle/ownership guards, accuracy bounds, replay protection, rate limits, and outbox events.
+- [x] Add an embedded Customer delivery-tracking map with stale-state fallback and privacy-safe Rider visibility.
+- [x] Add Rider delivery tracking controls with foreground location state, background-tracking readiness, and offline-sync feedback.
+- [x] Add provider-ready Google route/ETA, Redis live-state, and real-time delivery-event service boundaries without activating unconfigured providers.
+- [x] Add deterministic coverage for tracking ownership, lifecycle closure, privacy, location validation, route fallback, and live-event degradation.

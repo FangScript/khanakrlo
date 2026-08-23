@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { mergeQueuedRiderCommand, type QueuedRiderCommand } from "../lib/rider-command-queue";
-import { riderCommandInput } from "../server/modules/contracts/orders";
+import { riderCommandInput, riderTrackingStartInput, riderTrackingStateInput } from "../server/modules/contracts/orders";
 import { refundRequestCreateInput, supportMessageCreateInput } from "../server/modules/contracts/support";
 
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
@@ -19,6 +19,43 @@ describe("operational reliability package", () => {
     expect(merged[0]?.type).toBe("location_update");
     expect((merged[0] as Extract<QueuedRiderCommand, { type: "location_update" }>).latitudeE6).toBe(3);
     expect(mergeQueuedRiderCommand([], { type: "transition", orderId: 19, toStatus: "picked_up" })).toHaveLength(1);
+  });
+
+  it("validates delivery-scoped tracking actions and keeps location samples source-aware", () => {
+    expect(riderTrackingStartInput.parse({ orderId: 19 }).orderId).toBe(19);
+    expect(riderTrackingStateInput.parse({ orderId: 19, action: "pause" }).action).toBe("pause");
+    expect(() => riderTrackingStateInput.parse({ orderId: 19, action: "erase" })).toThrow();
+    const command = riderCommandInput.parse({ type: "location_update", orderId: 19, latitudeE6: 33_700_000, longitudeE6: 73_000_000, source: "background", deviceObservedAt: "2026-08-23T08:00:00.000Z", idempotencyKey: "rider:location:19:long-enough" });
+    expect(command.type).toBe("location_update");
+  });
+
+  it("requires an active delivery session before storing location and removes customer visibility on pause or delivery", () => {
+    const orders = source("server/order-service.ts");
+    expect(orders).toContain("startRiderTrackingSession");
+    expect(orders).toContain("session.status !== \"active\"");
+    expect(orders).toContain("Location updates are limited to one sample every five seconds.");
+    expect(orders).toContain("delivery_completed");
+    expect(orders).toContain("eq(riderTrackingSessions.status, \"active\")");
+  });
+
+  it("uses a native map with a truthful web fallback and queues background samples through the same Rider outbox", () => {
+    const map = source("components/delivery-tracking-map.native.tsx");
+    const webMap = source("components/delivery-tracking-map.web.tsx");
+    const background = source("lib/rider-background-tracking.ts");
+    expect(map).toContain("MapView");
+    expect(webMap).toContain("Open this order on iOS or Android");
+    expect(background).toContain("TaskManager.defineTask");
+    expect(background).toContain("enqueueRiderCommand");
+    expect(background).toContain("source: \"background\"");
+  });
+
+  it("keeps Google Routes and Redis optional server-side providers with explicit safe fallbacks", () => {
+    const routes = source("server/delivery-routing-service.ts");
+    const live = source("server/live-delivery-service.ts");
+    expect(routes).toContain("googleMapsServerApiKey");
+    expect(routes).toContain("provider_unavailable");
+    expect(routes).toContain("routes.googleapis.com/directions/v2:computeRoutes");
+    expect(live).toContain("outbox_polling_fallback");
   });
 
   it("uses recipient ownership, durable inbox records, and a provider-ready Expo delivery queue", () => {

@@ -6,6 +6,7 @@ export const orderService = {
   place: (userId: number, input: Parameters<typeof legacyOrders.placeOrder>[1]) => legacyOrders.placeOrder(userId, input),
   mine: (userId: number) => legacyOrders.listMyOrders(userId),
   byId: (userId: number, orderId: number) => legacyOrders.getOrderForActor(userId, orderId),
+  deliveryRoute: (userId: number, orderId: number) => legacyOrders.getDeliveryRouteForActor(userId, orderId),
   businessQueue: (userId: number) => legacyOrders.listBusinessOrders(userId),
   transition: (userId: number, input: Parameters<typeof legacyOrders.transitionBusinessOrder>[1]) => legacyOrders.transitionBusinessOrder(userId, input),
   availableRiders: (userId: number) => legacyOrders.listAvailableRiders(userId),
@@ -26,6 +27,9 @@ export const orderService = {
   riderQueue: (userId: number) => legacyOrders.listRiderOrders(userId),
   riderTransition: (userId: number, input: Parameters<typeof legacyOrders.transitionRiderOrder>[1]) => legacyOrders.transitionRiderOrder(userId, input),
   confirmCodCollection: (userId: number, input: Parameters<typeof legacyOrders.confirmCodCollection>[1]) => legacyOrders.confirmCodCollection(userId, input),
+  riderTrackingSession: (userId: number, orderId: number) => legacyOrders.getRiderTrackingSession(userId, orderId),
+  startRiderTracking: (userId: number, orderId: number) => legacyOrders.startRiderTrackingSession(userId, orderId),
+  setRiderTrackingState: (userId: number, input: Parameters<typeof legacyOrders.setRiderTrackingSessionState>[1]) => legacyOrders.setRiderTrackingSessionState(userId, input),
   updateRiderLocation: (userId: number, input: Parameters<typeof legacyOrders.updateRiderLocation>[1]) => legacyOrders.updateRiderLocation(userId, input),
   executeRiderCommand: (userId: number, input: Parameters<typeof legacyOrders.executeRiderCommand>[1]) => legacyOrders.executeRiderCommand(userId, input),
 };
