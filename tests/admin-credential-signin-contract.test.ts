@@ -22,7 +22,8 @@ describe("Admin credential sign-in", () => {
     expect(schema).toContain("adminCredentialLoginAttempts");
     expect(service).toContain("const MAX_FAILED_ATTEMPTS = 5");
     expect(service).toContain("const ATTEMPT_WINDOW_MS = 15 * 60 * 1000");
-    expect(service).toContain("Too many failed sign-in attempts");
+    expect(service).toContain("rateLimited: true as const");
+    expect(service).toContain("retryAfterSeconds");
   });
 
   it("requires a credential session before MFA and then requires the existing Admin web-MFA guard for operations", () => {

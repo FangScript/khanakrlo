@@ -34,7 +34,7 @@ function setCookie(res: Response, req: Request, token: string, expiresAt: Date) 
 export async function signInAdminCredential(req: Request, res: Response, input: { username: string; password: string }) {
   const db = await requireDb(); await ensureBootstrapCredential(db); const meta = requestMeta(req); const username = input.username.trim().toLowerCase(); const since = new Date(Date.now()-ATTEMPT_WINDOW_MS);
   const failed = await db.select().from(adminCredentialLoginAttempts).where(and(eq(adminCredentialLoginAttempts.username, username), eq(adminCredentialLoginAttempts.success, false), gte(adminCredentialLoginAttempts.createdAt, since)));
-  if (failed.length >= MAX_FAILED_ATTEMPTS) throw new AdminCredentialError("Too many failed sign-in attempts. Try again in 15 minutes.");
+  if (failed.length >= MAX_FAILED_ATTEMPTS) { const firstFailureAt = failed.reduce((earliest: Date, attempt: typeof adminCredentialLoginAttempts.$inferSelect) => attempt.createdAt < earliest ? attempt.createdAt : earliest, failed[0].createdAt); return { rateLimited: true as const, retryAfterSeconds: Math.max(1, Math.ceil((firstFailureAt.getTime() + ATTEMPT_WINDOW_MS - Date.now()) / 1000)) }; }
   const credential = (await db.select().from(adminStaffCredentials).where(eq(adminStaffCredentials.username, username)).limit(1))[0];
   const valid = Boolean(credential && credential.status === "active" && verifyPassword(input.password, credential.passwordHash));
   await db.insert(adminCredentialLoginAttempts).values({ username, ipAddress: meta.ipAddress, success: valid });
@@ -43,7 +43,7 @@ export async function signInAdminCredential(req: Request, res: Response, input: 
   const user = (await db.select().from(users).where(eq(users.id, credential.userId)).limit(1))[0];
   if (!user || user.role !== "admin" || staff?.status === "inactive") throw new AdminCredentialError("This staff account is not active.");
   const token = crypto.randomBytes(36).toString("base64url"); const expiresAt = new Date(Date.now()+CREDENTIAL_SESSION_MS);
-  await db.insert(adminCredentialSessions).values({ userId:user.id, tokenHash:hash(token), ipAddress:meta.ipAddress, host:meta.host, expiresAt, revokedAt:null }); setCookie(res, req, token, expiresAt); return { expiresAt, user: { id:user.id, username:credential.username, name:user.name, staffRole:staff?.staffRole ?? "senior_operations" } };
+  await db.insert(adminCredentialSessions).values({ userId:user.id, tokenHash:hash(token), ipAddress:meta.ipAddress, host:meta.host, expiresAt, revokedAt:null }); setCookie(res, req, token, expiresAt); return { rateLimited: false as const, expiresAt, user: { id:user.id, username:credential.username, name:user.name, staffRole:staff?.staffRole ?? "senior_operations" } };
 }
 
 export async function getAdminCredentialUser(req: Request) { const db = await requireDb(); const token = tokenFrom(req); if (!token) return null; const meta = requestMeta(req); const session = (await db.select().from(adminCredentialSessions).where(eq(adminCredentialSessions.tokenHash, hash(token))).limit(1))[0]; if (!session || session.revokedAt || session.expiresAt <= new Date() || session.ipAddress !== meta.ipAddress || session.host !== meta.host) return null; const credential = (await db.select().from(adminStaffCredentials).where(and(eq(adminStaffCredentials.userId, session.userId), eq(adminStaffCredentials.status, "active"))).limit(1))[0]; const user = (await db.select().from(users).where(eq(users.id, session.userId)).limit(1))[0]; if (!credential || !user || user.role !== "admin") return null; return user; }

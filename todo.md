@@ -199,3 +199,6 @@
 - [x] Add senior-operator credential provisioning and password reset controls without exposing password material.
 - [x] Update the Admin web gate to use username-password sign-in before MFA and protect every internal Admin API with the credential session.
 - [x] Add deterministic validation for credential hashing, failed-login rate limits, session separation, password reset, and MFA continuation.
+- [x] Return safe server-derived retry timing for rate-limited Admin credential sign-in attempts.
+- [x] Add an accessible Admin sign-in rate-limit message with a live retry countdown and disabled submit state.
+- [x] Add deterministic validation for retry timing, countdown formatting, and rate-limit user feedback.
