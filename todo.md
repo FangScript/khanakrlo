@@ -178,3 +178,7 @@
 - [x] Add AI triage quality metrics, human outcome labeling, and false-positive feedback records.
 - [x] Add Admin response-management, bulk moderation, and AI quality-monitoring interfaces.
 - [x] Add deterministic validation for assignment/RBAC, SLA escalation, confirmation-gated bulk moderation, and AI quality feedback.
+- [x] Remove all Admin console visibility from Customer, Business, and Rider mobile workspace surfaces.
+- [x] Block native Admin route rendering while preserving protected web access for authorized internal staff.
+- [x] Add a web-only Admin console entry path and web-focused access guidance.
+- [x] Add deterministic validation that Admin is hidden from mobile roles and available only on web for authorized staff.
