@@ -27,8 +27,9 @@ describe("Rider assignment and foreground live location", () => {
     const customer = readFileSync(resolve(process.cwd(), "app/order-tracking.tsx"), "utf8");
     expect(restaurant).toContain("orders.assignRider");
     expect(restaurant).toContain("orders.availableRiders");
-    expect(rider).toContain("orders.riderTransition");
-    expect(rider).toContain("orders.updateRiderLocation");
+    expect(rider).toContain("orders.executeRiderCommand");
+    expect(rider).toContain('type: "transition"');
+    expect(rider).toContain('type: "location_update"');
     expect(rider).toContain("watchPositionAsync");
     expect(rider).not.toContain("useRiderStore");
     expect(customer).toContain("freshnessSeconds");

@@ -86,6 +86,12 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    [
+      "expo-notifications",
+      {
+        defaultChannel: "orders",
+      },
+    ],
     "expo-font",
     "expo-asset",
     "expo-web-browser",

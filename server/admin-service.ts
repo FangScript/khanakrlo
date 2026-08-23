@@ -1,11 +1,12 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 
-import { adminAiTriageAssessments, adminAiTriageFeedback, adminCaseAssignments, adminCaseEscalations, adminOperationalCases, adminStaffRoleEvents, adminStaffRoles, auditEvents, businessOrganisations, domainOutboxEvents, orderReviews, orders, reviewPhotoReports, reviewPhotos, riderCashAccountEntries, riderCashSettlementReceipts, supportTickets, users, workspaceApplications } from "../drizzle/schema";
+import { adminAiTriageAssessments, adminAiTriageFeedback, adminCaseAssignments, adminCaseEscalations, adminOperationalCases, adminStaffRoleEvents, adminStaffRoles, auditEvents, businessOrganisations, domainOutboxEvents, orderReviews, orders, paymentLedgerEntries, refundRequests, reviewPhotoReports, reviewPhotos, riderCashAccountEntries, riderCashSettlementReceipts, supportTicketMessages, supportTickets, users, workspaceApplications } from "../drizzle/schema";
 import { getDb } from "./db";
 import { suspendBusinessWorkspace, restoreBusinessWorkspace } from "./business-service";
 import { DomainError } from "./modules/gateway/domain-error";
 import { storageGetSignedUrl } from "./storage";
 import { invokeLLM } from "./_core/llm";
+import { createUserNotification } from "./notification-service";
 
 export type AdminStaffRole = "support_agent" | "moderation_agent" | "finance_operator" | "senior_operations";
 type Capability = "support" | "moderation" | "finance" | "business_emergency";
@@ -409,4 +410,28 @@ export async function getAdminAiTriageQualityMetrics(userId: number) {
   });
   await audit(userId, "admin_ai_triage_quality", userId, "admin_ai_triage_quality_viewed", { assessmentCount: assessments.length, labeledCount: labeled });
   return { assessmentCount: assessments.length, labeledCount: labeled, feedbackCoverageBps: assessments.length ? Math.round((labeled / assessments.length) * 10_000) : 0, averageConfidenceBps, falsePositiveRateBps: labeled ? Math.round((feedbackCounts.false_positive / labeled) * 10_000) : null, falseNegativeRateBps: labeled ? Math.round((feedbackCounts.false_negative / labeled) * 10_000) : null, feedbackCounts, byModel };
+}
+
+/** Finance operators only: approval and settlement remain separate manual controls; no payment-provider call is made here. */
+export async function decideRefundRequest(userId: number, input: { refundRequestId: number; decision: "approve" | "reject" | "settle"; decisionNote: string }) {
+  const { db } = await requireCapability(userId, "finance");
+  const request = (await db.select().from(refundRequests).where(eq(refundRequests.id, input.refundRequestId)).limit(1))[0];
+  if (!request) throw new DomainError("NOT_FOUND", "Refund request not found.");
+  const order = (await db.select().from(orders).where(eq(orders.id, request.orderId)).limit(1))[0];
+  if (!order) throw new DomainError("NOT_FOUND", "Refund order not found.");
+  if (input.decision === "approve" && request.status !== "requested") throw new DomainError("CONFLICT", "Only a requested refund can be approved.");
+  if (input.decision === "reject" && request.status !== "requested") throw new DomainError("CONFLICT", "Only a requested refund can be rejected.");
+  if (input.decision === "settle" && request.status !== "approved") throw new DomainError("CONFLICT", "Only an approved refund can be marked settled.");
+  const now = new Date();
+  const nextStatus = (input.decision === "approve" ? "approved" : input.decision === "reject" ? "rejected" : "settled") as "approved" | "rejected" | "settled";
+  await db.transaction(async (tx) => {
+    await tx.update(refundRequests).set({ status: nextStatus, reviewedByUserId: input.decision === "settle" ? request.reviewedByUserId : userId, reviewedAt: input.decision === "settle" ? request.reviewedAt : now, settledByUserId: input.decision === "settle" ? userId : null, settledAt: input.decision === "settle" ? now : null, decisionNote: input.decisionNote, updatedAt: now }).where(eq(refundRequests.id, request.id));
+    await tx.insert(paymentLedgerEntries).values({ orderId: order.id, organisationId: order.organisationId, refundRequestId: request.id, partyType: "customer", entryType: input.decision === "approve" ? "refund_approved" : input.decision === "settle" ? "refund_settled" : "refund_rejected", amountMinor: input.decision === "reject" ? 0 : -request.requestedMinor, status: input.decision === "approve" ? "approved" : input.decision === "settle" ? "settled" : "void", reference: `refund-${input.decision}:${request.id}` });
+    await tx.insert(supportTicketMessages).values({ ticketId: request.supportTicketId, authorUserId: userId, authorType: "admin", visibility: "customer_visible", body: input.decision === "approve" ? `Your refund request for PKR ${(request.requestedMinor / 100).toFixed(2)} was approved. Settlement will be recorded separately.` : input.decision === "settle" ? `Your approved refund for PKR ${(request.requestedMinor / 100).toFixed(2)} is recorded as settled through the controlled pilot process.` : `Your refund request was not approved. ${input.decisionNote}` });
+    await tx.update(supportTickets).set({ status: input.decision === "approve" ? "in_progress" : "resolved", updatedAt: now }).where(eq(supportTickets.id, request.supportTicketId));
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "refund_request", entityId: String(request.id), action: `refund_${input.decision}`, previousValue: JSON.stringify({ status: request.status }), nextValue: JSON.stringify({ status: nextStatus, decisionNote: input.decisionNote, amountMinor: request.requestedMinor }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "finance", eventType: `refund.${nextStatus}`, aggregateType: "refund_request", aggregateId: String(request.id), payload: JSON.stringify({ refundRequestId: request.id, orderId: order.id, customerUserId: request.customerUserId, requestedMinor: request.requestedMinor, decision: input.decision }), deduplicationKey: eventKey(`refund.${nextStatus}`, request.id) });
+  });
+  await createUserNotification({ recipientUserId: request.customerUserId, category: "finance", title: "Refund request updated", body: input.decision === "approve" ? "Your refund request was approved for controlled settlement." : input.decision === "settle" ? "Your refund is recorded as settled." : "Your refund request was not approved. Open support for details.", route: `/support/${request.supportTicketId}`, orderId: order.id, supportTicketId: request.supportTicketId, deduplicationKey: `refund-notification:${request.id}:${nextStatus}` });
+  return { id: request.id, status: nextStatus };
 }

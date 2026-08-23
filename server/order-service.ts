@@ -12,6 +12,7 @@ import {
   customerAddresses,
   codCollections,
   domainOutboxEvents,
+  dispatchScoreSnapshots,
   kitchenBrands,
   menuCategories,
   menuItems,
@@ -21,11 +22,13 @@ import {
   orderKitchenAcknowledgements,
   orders,
   orderStatusHistory,
+  paymentLedgerEntries,
   riderAssignments,
   riderAvailability,
   riderCashAccounts,
   riderCashAccountEntries,
   riderCashSettlementReceipts,
+  riderCommandReceipts,
   riderLocationUpdates,
   serviceZones,
   settlementLedgerEntries,
@@ -34,9 +37,10 @@ import {
 import { canTransitionOrder, type OrderStatus } from "../shared/order";
 import { distanceMeters, estimateCourierMinutes } from "../shared/delivery";
 import { isBusinessOpenAt } from "../shared/business-hours";
-import type { OrderPlaceInput, OrderQuoteInput, RiderCashHistoryFilterInput } from "./modules/contracts/orders";
+import type { OrderPlaceInput, OrderQuoteInput, RiderCashHistoryFilterInput, RiderCommandInput } from "./modules/contracts/orders";
 import { DomainError } from "./modules/gateway/domain-error";
 import { getDb } from "./db";
+import { createUserNotification } from "./notification-service";
 
 async function requireDb() {
   const db = await getDb();
@@ -197,6 +201,11 @@ export async function placeOrder(userId: number, input: OrderPlaceInput) {
       { orderId: order.id, organisationId: quote.organisationId, partyType: "restaurant", entryType: "restaurant_payable", amountMinor: quote.commission.restaurantPayableMinor },
       { orderId: order.id, organisationId: quote.organisationId, partyType: "rider", entryType: "rider_cash_custody", amountMinor: quote.commission.riderCashCustodyMinor },
     ]);
+    await tx.insert(paymentLedgerEntries).values([
+      { orderId: order.id, organisationId: quote.organisationId, partyType: "customer", entryType: "order_total_due", amountMinor: quote.totalMinor, status: "pending", reference: `order-total:${order.id}` },
+      { orderId: order.id, organisationId: quote.organisationId, partyType: "business", entryType: "business_payable", amountMinor: quote.commission.restaurantPayableMinor, status: "pending", reference: `business-payable:${order.id}` },
+      { orderId: order.id, organisationId: quote.organisationId, partyType: "platform", entryType: "platform_commission", amountMinor: quote.commission.platformCommissionMinor, status: "pending", reference: `platform-commission:${order.id}` },
+    ]);
     for (const line of quote.lines) {
       await tx.insert(orderItems).values({ orderId: order.id, menuItemId: line.menuItemId, dishName: line.dishName, dishDescription: line.dishDescription, dishImageKey: line.dishImageKey, unitPriceMinor: line.unitPriceMinor, modifierTotalMinor: line.modifierTotalMinor, lineTotalMinor: line.lineTotalMinor, quantity: line.quantity, prepTimeMinutes: line.prepTimeMinutes });
       const storedLine = (await tx.select().from(orderItems).where(and(eq(orderItems.orderId, order.id), eq(orderItems.menuItemId, line.menuItemId))).limit(1))[0];
@@ -247,6 +256,70 @@ export async function listAvailableRiders(userId: number) {
   if (!riderIds.length) return [];
   const profiles = await db.select().from(accountProfiles).where(inArray(accountProfiles.userId, riderIds));
   return riderIds.map((riderUserId: number) => ({ riderUserId, displayName: profiles.find((profile: typeof accountProfiles.$inferSelect) => profile.userId === riderUserId)?.givenName ?? `Rider ${riderUserId}` }));
+}
+
+/** Deterministic pilot ranking: active, online Riders receive a score reduced by active workload and stale availability. No compensation, acceptance, or hidden demographic factor is used. */
+export async function getDispatchRecommendations(userId: number, orderId: number) {
+  const db = await requireDb();
+  const organisationId = await ownedBusinessOrganisationId(db, userId);
+  const order = (await db.select().from(orders).where(eq(orders.id, orderId)).limit(1))[0];
+  if (!order) throw new DomainError("NOT_FOUND", "Order not found.");
+  if (order.organisationId !== organisationId) throw new DomainError("FORBIDDEN", "This order is outside your Business workspace.");
+  if (order.status !== "ready_for_pickup") throw new DomainError("CONFLICT", "Dispatch recommendations are available only for ready-for-pickup orders.");
+  const [memberships, availabilityRows, assignmentRows, allOrders, profiles] = await Promise.all([
+    db.select().from(workspaceMemberships).where(and(eq(workspaceMemberships.workspaceType, "rider"), eq(workspaceMemberships.status, "active"))),
+    db.select().from(riderAvailability),
+    db.select().from(riderAssignments).where(eq(riderAssignments.offerStatus, "accepted")),
+    db.select().from(orders),
+    db.select().from(accountProfiles),
+  ]);
+  const orderById = new Map(allOrders.map((candidate: typeof orders.$inferSelect) => [candidate.id, candidate]));
+  const activeWorkload = new Map<number, number>();
+  for (const assignment of assignmentRows as typeof riderAssignments.$inferSelect[]) {
+    const assignedOrder = orderById.get(assignment.orderId);
+    if (assignedOrder && (assignedOrder.status === "assigned" || assignedOrder.status === "picked_up")) activeWorkload.set(assignment.riderUserId, (activeWorkload.get(assignment.riderUserId) ?? 0) + 1);
+  }
+  const availabilityByRider = new Map((availabilityRows as typeof riderAvailability.$inferSelect[]).map((row) => [row.riderUserId, row]));
+  const profileByRider = new Map((profiles as typeof accountProfiles.$inferSelect[]).map((row) => [row.userId, row]));
+  const now = new Date();
+  const recommendations = (memberships as typeof workspaceMemberships.$inferSelect[]).map((membership) => {
+    const availability = availabilityByRider.get(membership.userId);
+    const workload = activeWorkload.get(membership.userId) ?? 0;
+    const availabilityAgeSeconds = availability ? Math.max(0, Math.floor((now.getTime() - availability.updatedAt.getTime()) / 1_000)) : Number.MAX_SAFE_INTEGER;
+    const eligible = availability?.status === "online";
+    const workloadPenalty = workload * 200;
+    const freshnessPenalty = Math.min(60, Math.floor(availabilityAgeSeconds / 15));
+    const score = eligible ? Math.max(0, 1_000 - workloadPenalty - freshnessPenalty) : 0;
+    const explanation = { eligibility: eligible ? "eligible" : "ineligible", reasons: eligible ? ["Rider is online", `Active workload: ${workload}`, `Availability last updated ${availabilityAgeSeconds}s ago`] : [availability ? "Rider is offline" : "Rider has not set availability"], scoreComponents: { base: eligible ? 1_000 : 0, workloadPenalty, freshnessPenalty } };
+    return { riderUserId: membership.userId, displayName: profileByRider.get(membership.userId)?.givenName ?? `Rider ${membership.userId}`, score, activeWorkload: workload, availabilityAgeSeconds, eligibility: eligible ? "eligible" as const : "ineligible" as const, explanation };
+  }).sort((left, right) => right.score - left.score || left.activeWorkload - right.activeWorkload || left.riderUserId - right.riderUserId);
+  for (const recommendation of recommendations) {
+    await db.insert(dispatchScoreSnapshots).values({ orderId, riderUserId: recommendation.riderUserId, score: recommendation.score, activeWorkload: recommendation.activeWorkload, availabilityAgeSeconds: recommendation.availabilityAgeSeconds, eligibility: recommendation.eligibility, explanationJson: JSON.stringify(recommendation.explanation), computedAt: now }).onDuplicateKeyUpdate({ set: { score: recommendation.score, activeWorkload: recommendation.activeWorkload, availabilityAgeSeconds: recommendation.availabilityAgeSeconds, eligibility: recommendation.eligibility, explanationJson: JSON.stringify(recommendation.explanation), computedAt: now } });
+  }
+  return recommendations;
+}
+
+export async function offerRecommendedRider(userId: number, orderId: number) {
+  const recommendations = await getDispatchRecommendations(userId, orderId);
+  const recommendation = recommendations.find((candidate) => candidate.eligibility === "eligible");
+  if (!recommendation) throw new DomainError("CONFLICT", "No eligible online Rider is available for this order.");
+  return assignRiderToOrder(userId, { orderId, riderUserId: recommendation.riderUserId });
+}
+
+export async function getBusinessStatement(userId: number) {
+  const db = await requireDb();
+  const organisationId = await ownedBusinessOrganisationId(db, userId);
+  const entries = await db.select().from(paymentLedgerEntries).where(eq(paymentLedgerEntries.organisationId, organisationId)).orderBy(desc(paymentLedgerEntries.createdAt)).limit(250);
+  const sum = (entryType: typeof paymentLedgerEntries.$inferSelect["entryType"], statuses?: Array<typeof paymentLedgerEntries.$inferSelect["status"]>) => entries.filter((entry: typeof paymentLedgerEntries.$inferSelect) => entry.entryType === entryType && (!statuses || statuses.includes(entry.status))).reduce((total: number, entry: typeof paymentLedgerEntries.$inferSelect) => total + entry.amountMinor, 0);
+  return { entries, totals: { grossOrderValueMinor: sum("order_total_due"), platformCommissionMinor: sum("platform_commission"), businessPayablePendingMinor: sum("business_payable", ["pending", "approved"]), businessPayableSettledMinor: sum("business_payable", ["settled"]), refundsRequestedMinor: sum("refund_requested"), refundsSettledMinor: sum("refund_settled") }, settlementStatus: "pilot_manual_payout_review" as const };
+}
+
+export async function getRiderStatement(userId: number) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  const entries = await db.select().from(paymentLedgerEntries).where(eq(paymentLedgerEntries.riderUserId, userId)).orderBy(desc(paymentLedgerEntries.createdAt)).limit(250);
+  const sum = (entryType: typeof paymentLedgerEntries.$inferSelect["entryType"], statuses?: Array<typeof paymentLedgerEntries.$inferSelect["status"]>) => entries.filter((entry: typeof paymentLedgerEntries.$inferSelect) => entry.entryType === entryType && (!statuses || statuses.includes(entry.status))).reduce((total: number, entry: typeof paymentLedgerEntries.$inferSelect) => total + entry.amountMinor, 0);
+  return { entries, totals: { cashCollectedMinor: sum("cash_collected"), cashCustodyOpenMinor: sum("cash_collected", ["pending", "approved"]), cashCustodySettledMinor: sum("cash_collected", ["settled"]), commissionReservedMinor: 0 }, earningsStatus: "requires_payout_policy" as const, note: "Rider compensation is intentionally not calculated until a payout policy is approved." };
 }
 
 export async function getRiderAvailability(userId: number) {
@@ -338,6 +411,7 @@ export async function remitRiderCash(userId: number, amountMinor: number) {
     const receiptResult = await tx.insert(riderCashSettlementReceipts).values({ riderUserId: userId, riderCashAccountId: account.id, cashAccountEntryId, receiptCode, amountMinor, balanceAfterMinor: nextBalance, reconciledOrderIdsJson: JSON.stringify(reconciledOrderIds), issuedAt: now });
     const receiptId = Number(receiptResult[0].insertId);
     await tx.update(orders).set({ settlementStatus: "reconciled", updatedAt: now }).where(inArray(orders.id, reconciledOrderIds));
+    await tx.update(paymentLedgerEntries).set({ status: "settled" }).where(and(inArray(paymentLedgerEntries.orderId, reconciledOrderIds), eq(paymentLedgerEntries.riderUserId, userId), eq(paymentLedgerEntries.entryType, "rider_cash_custody")));
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_cash_account", entityId: String(account.id), action: "rider_remittance_submitted", nextValue: JSON.stringify({ amountMinor, orderIds: reconciledOrderIds, receiptCode }) });
     await tx.insert(domainOutboxEvents).values({ domain: "settlement", eventType: "rider.remittance_submitted", aggregateType: "rider", aggregateId: String(userId), payload: JSON.stringify({ riderUserId: userId, amountMinor, orderIds: reconciledOrderIds, receiptCode }), deduplicationKey: eventKey("rider.remittance_submitted", userId) });
     return { amountMinor, reconciledOrderIds, balanceMinor: nextBalance, receiptId, receiptCode };
@@ -362,6 +436,7 @@ export async function assignRiderToOrder(userId: number, input: { orderId: numbe
     else await tx.insert(riderAssignments).values({ orderId: order.id, riderUserId: input.riderUserId, assignedByUserId: userId, assignedAt: now, offerStatus: "offered", offerExpiresAt });
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_offer", entityId: String(order.id), action: "rider_offer_created", nextValue: JSON.stringify({ riderUserId: input.riderUserId, orderId: order.id, offerExpiresAt }) });
     await tx.insert(domainOutboxEvents).values({ domain: "dispatch", eventType: "rider.offer_created", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, organisationId, riderUserId: input.riderUserId, offerExpiresAt: offerExpiresAt.toISOString() }), deduplicationKey: eventKey("rider.offer_created", order.id) });
+    await createUserNotification({ recipientUserId: input.riderUserId, category: "rider_offer", title: "New delivery offer", body: `${order.publicId} is ready for pickup. Respond within five minutes.`, route: "/rider", orderId: order.id, deduplicationKey: `rider-offer:${order.id}:${input.riderUserId}:${offerExpiresAt.getTime()}` });
     return { ...(await hydrateOrder(tx, order)), offerExpiresAt };
   });
 }
@@ -411,6 +486,7 @@ export async function respondToRiderOffer(userId: number, input: { orderId: numb
     if (accepted) { await reserveRiderCommission(tx, userId, order); await tx.update(orders).set({ status: "assigned", updatedAt: now }).where(eq(orders.id, order.id)); await tx.insert(orderStatusHistory).values({ orderId: order.id, fromStatus: "ready_for_pickup", toStatus: "assigned", actorUserId: userId, note: "Rider accepted dispatch offer and commission was reserved against Rider Cash Account" }); }
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_offer", entityId: String(order.id), action: accepted ? "rider_offer_accepted" : "rider_offer_declined", nextValue: JSON.stringify({ note: input.note ?? null }) });
     await tx.insert(domainOutboxEvents).values({ domain: "dispatch", eventType: accepted ? "rider.offer_accepted" : "rider.offer_declined", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, riderUserId: userId, note: input.note ?? null }), deduplicationKey: eventKey(accepted ? "rider.offer_accepted" : "rider.offer_declined", order.id) });
+    if (accepted) await createUserNotification({ recipientUserId: order.customerUserId, category: "order", title: "A Rider accepted your order", body: `${order.publicId} is being collected from the Business.`, route: `/order-tracking?id=${order.id}`, orderId: order.id, deduplicationKey: `order-assigned:${order.id}` });
     return accepted ? hydrateOrder(tx, { ...order, status: "assigned", updatedAt: now }) : { orderId: order.id, declined: true };
   });
 }
@@ -440,6 +516,7 @@ export async function transitionRiderOrder(userId: number, input: { orderId: num
     await tx.insert(orderStatusHistory).values({ orderId: order.id, fromStatus: order.status, toStatus: input.toStatus, actorUserId: userId, note: input.note ?? null });
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "order", entityId: String(order.id), action: `rider_order_${input.toStatus}`, previousValue: JSON.stringify({ status: order.status }), nextValue: JSON.stringify({ status: input.toStatus, note: input.note ?? null }) });
     await tx.insert(domainOutboxEvents).values({ domain: "orders", eventType: `order.${input.toStatus}`, aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, riderUserId: userId, fromStatus: order.status, toStatus: input.toStatus }), deduplicationKey: eventKey(`order.${input.toStatus}`, order.id) });
+    await createUserNotification({ recipientUserId: order.customerUserId, category: "order", title: input.toStatus === "picked_up" ? "Your order is on the way" : "Your order was delivered", body: input.toStatus === "picked_up" ? `${order.publicId} has left the Business.` : `${order.publicId} is marked delivered.`, route: `/order-tracking?id=${order.id}`, orderId: order.id, deduplicationKey: `order-status:${order.id}:${input.toStatus}` });
     return hydrateOrder(tx, { ...order, status: input.toStatus, updatedAt: now });
   });
 }
@@ -471,6 +548,10 @@ export async function confirmCodCollection(userId: number, input: { orderId: num
     if (varianceMinor !== 0) await tx.insert(riderCashAccountEntries).values({ riderCashAccountId: account.id, riderUserId: userId, orderId: order.id, entryType: "cash_variance", amountMinor: varianceMinor, balanceAfterMinor: balanceAfterCollection, reference: `variance:${order.publicId}` });
     await tx.update(orders).set({ paymentStatus: "paid", riderCashCustodyMinor: input.collectedMinor, settlementStatus: varianceMinor === 0 ? "unsettled" : "variance", updatedAt: now }).where(eq(orders.id, order.id));
     if (varianceMinor !== 0) await tx.insert(settlementLedgerEntries).values({ orderId: order.id, organisationId: order.organisationId, partyType: "rider", entryType: "collection_variance", amountMinor: varianceMinor });
+    await tx.insert(paymentLedgerEntries).values([
+      { orderId: order.id, organisationId: order.organisationId, riderUserId: userId, partyType: "customer", entryType: "cash_collected", amountMinor: input.collectedMinor, status: "approved", reference: `cash-collected:${order.id}` },
+      { orderId: order.id, organisationId: order.organisationId, riderUserId: userId, partyType: "rider", entryType: "rider_cash_custody", amountMinor: input.collectedMinor, status: "pending", reference: `rider-custody:${order.id}` },
+    ]);
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "cod_collection", entityId: String(order.id), action: "cod_collection_confirmed", previousValue: JSON.stringify({ expectedMinor }), nextValue: JSON.stringify({ collectedMinor: input.collectedMinor, varianceMinor, varianceReason: input.varianceReason ?? null }) });
     await tx.insert(domainOutboxEvents).values({ domain: "payments", eventType: "cod.collection_confirmed", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, publicId: order.publicId, riderUserId: userId, expectedMinor, collectedMinor: input.collectedMinor, varianceMinor, settlementStatus: varianceMinor === 0 ? "unsettled" : "variance" }), deduplicationKey: eventKey("cod.collection_confirmed", order.id) });
     return { orderId: order.id, expectedMinor, collectedMinor: input.collectedMinor, varianceMinor, status: collectionStatus, duplicate: false };
@@ -491,6 +572,60 @@ export async function updateRiderLocation(userId: number, input: { orderId: numb
     await tx.insert(domainOutboxEvents).values({ domain: "delivery", eventType: "rider.location_updated", aggregateType: "order", aggregateId: String(order.id), payload: JSON.stringify({ orderId: order.id, riderUserId: userId, latitudeE6: input.latitudeE6, longitudeE6: input.longitudeE6, accuracyMeters: input.accuracyMeters ?? null, receivedAt: now.toISOString() }), deduplicationKey: eventKey("rider.location_updated", order.id) });
     return { updatedAt: now };
   });
+}
+
+async function isRiderCommandAlreadyApplied(db: any, riderUserId: number, input: RiderCommandInput) {
+  if (input.type === "availability") {
+    const availability = (await db.select().from(riderAvailability).where(eq(riderAvailability.riderUserId, riderUserId)).limit(1))[0];
+    return availability?.status === input.status;
+  }
+  const order = (await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1))[0];
+  if (!order) return false;
+  if (input.type === "transition") return order.status === input.toStatus;
+  if (input.type === "cod_collection") {
+    const collection = (await db.select().from(codCollections).where(and(eq(codCollections.orderId, input.orderId), eq(codCollections.riderUserId, riderUserId))).limit(1))[0];
+    return Boolean(collection);
+  }
+  if (input.type === "offer_decision") {
+    const assignment = (await db.select().from(riderAssignments).where(and(eq(riderAssignments.orderId, input.orderId), eq(riderAssignments.riderUserId, riderUserId))).limit(1))[0];
+    return assignment?.offerStatus === (input.decision === "accept" ? "accepted" : "declined");
+  }
+  return false;
+}
+
+/** Processes one sensitive Rider intent. A replay with the same user-scoped idempotency key returns the first success and never repeats cash or state mutations. */
+export async function executeRiderCommand(userId: number, input: RiderCommandInput) {
+  const db = await requireDb();
+  await requireActiveRider(db, userId);
+  const existing = (await db.select().from(riderCommandReceipts).where(and(eq(riderCommandReceipts.riderUserId, userId), eq(riderCommandReceipts.idempotencyKey, input.idempotencyKey))).limit(1))[0];
+  if (existing?.status === "succeeded") return { status: "succeeded" as const, duplicate: true, result: existing.resultJson ? JSON.parse(existing.resultJson) : null };
+  if (existing?.status === "rejected") throw new DomainError((existing.errorCode as "VALIDATION" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT") ?? "CONFLICT", existing.errorMessage ?? "This command was previously rejected.");
+  const now = new Date();
+  if (existing) await db.update(riderCommandReceipts).set({ status: "processing", attempts: existing.attempts + 1, errorCode: null, errorMessage: null, updatedAt: now }).where(eq(riderCommandReceipts.id, existing.id));
+  else await db.insert(riderCommandReceipts).values({ riderUserId: userId, orderId: "orderId" in input ? input.orderId : null, commandType: input.type, idempotencyKey: input.idempotencyKey, payloadJson: JSON.stringify(input), status: "processing", attempts: 1, receivedAt: now });
+  const receipt = (await db.select().from(riderCommandReceipts).where(and(eq(riderCommandReceipts.riderUserId, userId), eq(riderCommandReceipts.idempotencyKey, input.idempotencyKey))).limit(1))[0];
+  if (!receipt) throw new DomainError("INTERNAL", "The Rider command receipt could not be created.");
+  try {
+    let result: unknown;
+    if (input.type === "offer_decision") result = await respondToRiderOffer(userId, { orderId: input.orderId, decision: input.decision, note: input.note });
+    else if (input.type === "transition") result = await transitionRiderOrder(userId, { orderId: input.orderId, toStatus: input.toStatus, note: input.note });
+    else if (input.type === "cod_collection") result = await confirmCodCollection(userId, { orderId: input.orderId, collectedMinor: input.collectedMinor, varianceReason: input.varianceReason });
+    else if (input.type === "location_update") result = await updateRiderLocation(userId, { orderId: input.orderId, latitudeE6: input.latitudeE6, longitudeE6: input.longitudeE6, accuracyMeters: input.accuracyMeters });
+    else result = await setRiderAvailability(userId, input.status);
+    await db.update(riderCommandReceipts).set({ status: "succeeded", resultJson: JSON.stringify(result), processedAt: new Date(), updatedAt: new Date() }).where(eq(riderCommandReceipts.id, receipt.id));
+    await db.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_command", entityId: String(receipt.id), action: "rider_command_succeeded", nextValue: JSON.stringify({ type: input.type, orderId: "orderId" in input ? input.orderId : null, idempotencyKey: input.idempotencyKey }) });
+    return { status: "succeeded" as const, duplicate: false, result };
+  } catch (error) {
+    if (await isRiderCommandAlreadyApplied(db, userId, input)) {
+      const result = { recoveredFromRetry: true, type: input.type };
+      await db.update(riderCommandReceipts).set({ status: "succeeded", resultJson: JSON.stringify(result), processedAt: new Date(), updatedAt: new Date() }).where(eq(riderCommandReceipts.id, receipt.id));
+      return { status: "succeeded" as const, duplicate: true, result };
+    }
+    const domainError = error instanceof DomainError ? error : new DomainError("UNAVAILABLE", error instanceof Error ? error.message : "Rider command could not be processed.");
+    const rejected = ["VALIDATION", "FORBIDDEN", "NOT_FOUND", "CONFLICT"].includes(domainError.code);
+    await db.update(riderCommandReceipts).set({ status: rejected ? "rejected" : "failed", errorCode: domainError.code, errorMessage: domainError.message.slice(0, 500), updatedAt: new Date() }).where(eq(riderCommandReceipts.id, receipt.id));
+    throw domainError;
+  }
 }
 
 export async function transitionBusinessOrder(userId: number, input: { orderId: number; toStatus: OrderStatus; note?: string }) {

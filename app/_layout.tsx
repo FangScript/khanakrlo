@@ -1,8 +1,11 @@
 import "@/global.css";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import Constants from "expo-constants";
+import * as Network from "expo-network";
+import * as Notifications from "expo-notifications";
+import { router, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { Platform } from "react-native";
@@ -19,9 +22,14 @@ import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
 import { trpc, createTRPCClient } from "@/lib/trpc";
 import { initManusRuntime, subscribeSafeAreaInsets } from "@/lib/_core/manus-runtime";
 import { useKhanaStore } from "@/lib/khana-store";
+import { flushRiderCommandQueue } from "@/lib/rider-command-queue";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
+
+if (Platform.OS !== "web") {
+  Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) });
+}
 
 export const unstable_settings = {
   initialRouteName: "index",
@@ -30,6 +38,51 @@ export const unstable_settings = {
 function CartHydrator() {
   const { hydrateCart } = useKhanaStore();
   useEffect(() => { void hydrateCart(); }, [hydrateCart]);
+  return null;
+}
+
+function RiderCommandSynchronizer() {
+  const network = Network.useNetworkState();
+  const executeCommand = trpc.orders.executeRiderCommand.useMutation();
+  const queryClient = useQueryClient();
+  const isSyncing = useRef(false);
+  useEffect(() => {
+    if (network.isInternetReachable !== true || isSyncing.current) return;
+    isSyncing.current = true;
+    void flushRiderCommandQueue(async (command) => { await executeCommand.mutateAsync(command); })
+      .then(async (result) => { if (result.completed || result.rejected) await queryClient.invalidateQueries(); })
+      .finally(() => { isSyncing.current = false; });
+  }, [executeCommand, network.isInternetReachable, queryClient]);
+  return null;
+}
+
+function NotificationRuntime() {
+  const registerDevice = trpc.notifications.registerExpoDevice.useMutation();
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    let disposed = false;
+    const redirect = (notification: Notifications.Notification) => {
+      const candidate = notification.request.content.data?.url;
+      if (typeof candidate === "string" && candidate.startsWith("/")) router.push(candidate as never);
+    };
+    const setup = async () => {
+      try {
+        if (Platform.OS === "android") await Notifications.setNotificationChannelAsync("orders", { name: "Order updates", importance: Notifications.AndroidImportance.HIGH });
+        const existing = await Notifications.getPermissionsAsync();
+        const permission = existing.status === "granted" ? existing : await Notifications.requestPermissionsAsync();
+        if (permission.status !== "granted") return;
+        const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+        if (!projectId) return;
+        const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+        if (!disposed) await registerDevice.mutateAsync({ token, platform: Platform.OS === "ios" ? "ios" : "android" });
+      } catch { /* Durable in-app inbox remains available if push registration is unavailable. */ }
+    };
+    void setup();
+    const last = Notifications.getLastNotificationResponse();
+    if (last?.notification) redirect(last.notification);
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => redirect(response.notification));
+    return () => { disposed = true; subscription.remove(); };
+  }, [registerDevice]);
   return null;
 }
 
@@ -90,6 +143,8 @@ export default function RootLayout() {
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
         <QueryClientProvider client={queryClient}>
           <CartHydrator />
+          <RiderCommandSynchronizer />
+          <NotificationRuntime />
           {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
           {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
           {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}

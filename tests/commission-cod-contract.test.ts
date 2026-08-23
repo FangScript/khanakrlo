@@ -18,7 +18,8 @@ describe("commission-aware COD settlement contracts", () => {
     expect(service).toContain("Confirm COD collection before marking this order delivered.");
     expect(service).toContain("cod.collection_confirmed");
     expect(service).toContain("platformCommissionMinor");
-    expect(riderScreen).toContain("orders.confirmCodCollection");
+    expect(riderScreen).toContain("orders.executeRiderCommand");
+    expect(riderScreen).toContain('type: "cod_collection"');
     expect(riderScreen).toContain("Confirm COD collection");
   });
 });

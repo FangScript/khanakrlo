@@ -68,3 +68,8 @@ export const adminAiTriageFeedbackInput = z.object({
   outcome: z.enum(["confirmed_accurate", "false_positive", "false_negative", "needs_more_evidence"]),
   note: z.string().trim().min(3).max(1000).optional(),
 }).strict();
+export const adminRefundDecisionInput = z.object({
+  refundRequestId: z.number().int().positive(),
+  decision: z.enum(["approve", "reject", "settle"]),
+  decisionNote: z.string().trim().min(3).max(1000),
+}).strict();

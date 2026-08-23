@@ -205,3 +205,10 @@
 - [x] Push the latest validated Admin security and credential sign-in milestone to GitHub.
 - [x] Audit Foodpanda’s public customer, Business, Rider, and operational capabilities against Khana KarLo.
 - [x] Produce a prioritized, Pakistan-pilot-appropriate capability gap roadmap without changing approved self-service Business or commission policies.
+- [x] Add an offline-safe Rider command outbox for offer decisions, pickup/delivery transitions, COD confirmation, and retry/idempotency context.
+- [x] Add durable in-app notifications, Expo Push device registration/delivery readiness, and deep-link notification events for Rider and Customer order workflows.
+- [x] Add payment/refund ledger records and Business/Rider statement APIs with immutable order-linked financial context.
+- [x] Add server-authoritative dispatch scoring and ranked Rider recommendations for ready orders.
+- [x] Add order-linked customer support cases with chat-style messages, operational status, and Admin escalation context.
+- [x] Add Rider, Customer, Business, and Admin interfaces for command sync, notifications, statements, dispatch recommendations, and support cases.
+- [x] Add deterministic validation for offline idempotency, notification privacy, financial ledger integrity, scoring eligibility, and order-linked support ownership.

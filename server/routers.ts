@@ -10,14 +10,16 @@ import { discoveryService } from "./modules/discovery/service";
 import { callDomain } from "./modules/gateway/domain-error";
 import { identityWorkspaceService } from "./modules/identity-workspace/service";
 import { orderService } from "./modules/orders/service";
-import { codCollectionConfirmInput, kitchenOrderAcknowledgementInput, orderByIdInput, orderPlaceInput, orderQuoteInput, orderTransitionInput, riderAssignmentInput, riderAvailabilityInput, riderCashHistoryFilterInput, riderCashRemittanceInput, riderLocationUpdateInput, riderOfferDecisionInput, riderOrderTransitionInput, riderSettlementReceiptInput } from "./modules/contracts/orders";
+import { codCollectionConfirmInput, dispatchRecommendationInput, kitchenOrderAcknowledgementInput, orderByIdInput, orderPlaceInput, orderQuoteInput, orderTransitionInput, riderAssignmentInput, riderAvailabilityInput, riderCashHistoryFilterInput, riderCashRemittanceInput, riderCommandInput, riderLocationUpdateInput, riderOfferDecisionInput, riderOrderTransitionInput, riderSettlementReceiptInput } from "./modules/contracts/orders";
 import { addressService } from "./modules/addresses/service";
 import { customerAddressCreateInput, customerAddressIdInput, customerAddressUpdateInput } from "./modules/contracts/addresses";
 import { reviewBusinessInput, reviewCreateInput, reviewModerationInput, reviewOrderInput, reviewPhotoRemoveInput, reviewPhotoReportInput, reviewPhotoUploadInput, reviewPhotoPrivacyUpdateInput, reviewReplyInput } from "./modules/contracts/reviews";
 import { reviewService } from "./modules/reviews/service";
-import { notificationPreferenceUpdateInput, supportTicketCreateInput } from "./modules/contracts/support";
+import { notificationPreferenceUpdateInput, refundRequestCreateInput, supportMessageCreateInput, supportTicketCreateInput, supportTicketIdInput } from "./modules/contracts/support";
 import * as supportService from "./support-service";
-import { adminAiTriageFeedbackInput, adminAiTriageInput, adminAiTriageReviewInput, adminBulkPhotoModerationInput, adminBusinessEmergencyInput, adminCaseAssignmentInput, adminCaseDetailInput, adminOperationalCaseUpdateInput, adminPhotoReportStatusInput, adminRemittanceCaseInput, adminSlaEscalationAcknowledgeInput, adminStaffRoleProvisionInput, adminSupportTicketStatusInput } from "./modules/contracts/admin";
+import { expoDeviceTokenRegistrationInput, notificationIdInput } from "./modules/contracts/notifications";
+import * as notificationService from "./notification-service";
+import { adminAiTriageFeedbackInput, adminAiTriageInput, adminAiTriageReviewInput, adminBulkPhotoModerationInput, adminBusinessEmergencyInput, adminCaseAssignmentInput, adminCaseDetailInput, adminOperationalCaseUpdateInput, adminPhotoReportStatusInput, adminRefundDecisionInput, adminRemittanceCaseInput, adminSlaEscalationAcknowledgeInput, adminStaffRoleProvisionInput, adminSupportTicketStatusInput } from "./modules/contracts/admin";
 import * as adminService from "./admin-service";
 import { getAdminWebConfiguration } from "./admin-security";
 import * as adminSecurity from "./admin-security";
@@ -116,12 +118,16 @@ export const appRouter = router({
     transition: protectedProcedure.input(orderTransitionInput).mutation(({ ctx, input }) => callDomain(() => orderService.transition(ctx.user.id, input))),
     acknowledgeKitchenOrder: protectedProcedure.input(kitchenOrderAcknowledgementInput).mutation(({ ctx, input }) => callDomain(() => orderService.acknowledgeKitchenOrder(ctx.user.id, input.orderId))),
     availableRiders: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.availableRiders(ctx.user.id))),
+    dispatchRecommendations: protectedProcedure.input(dispatchRecommendationInput).query(({ ctx, input }) => callDomain(() => orderService.dispatchRecommendations(ctx.user.id, input.orderId))),
+    offerRecommendedRider: protectedProcedure.input(dispatchRecommendationInput).mutation(({ ctx, input }) => callDomain(() => orderService.offerRecommendedRider(ctx.user.id, input.orderId))),
+    businessStatement: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.businessStatement(ctx.user.id))),
     assignRider: protectedProcedure.input(riderAssignmentInput).mutation(({ ctx, input }) => callDomain(() => orderService.assignRider(ctx.user.id, input))),
     riderOffers: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderOffers(ctx.user.id))),
     riderAvailability: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderAvailability(ctx.user.id))),
     setRiderAvailability: protectedProcedure.input(riderAvailabilityInput).mutation(({ ctx, input }) => callDomain(() => orderService.setRiderAvailability(ctx.user.id, input.status))),
     riderCashCustodySummary: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderCashCustodySummary(ctx.user.id))),
     riderCashAccount: protectedProcedure.input(riderCashHistoryFilterInput.optional()).query(({ ctx, input }) => callDomain(() => orderService.riderCashAccount(ctx.user.id, input))),
+    riderStatement: protectedProcedure.query(({ ctx }) => callDomain(() => orderService.riderStatement(ctx.user.id))),
     remitRiderCash: protectedProcedure.input(riderCashRemittanceInput).mutation(({ ctx, input }) => callDomain(() => orderService.remitRiderCash(ctx.user.id, input.amountMinor))),
     riderSettlementReceipt: protectedProcedure.input(riderSettlementReceiptInput).query(({ ctx, input }) => callDomain(() => orderService.riderSettlementReceipt(ctx.user.id, input.receiptId))),
     respondToRiderOffer: protectedProcedure.input(riderOfferDecisionInput).mutation(({ ctx, input }) => callDomain(() => orderService.respondToRiderOffer(ctx.user.id, input))),
@@ -129,6 +135,12 @@ export const appRouter = router({
     riderTransition: protectedProcedure.input(riderOrderTransitionInput).mutation(({ ctx, input }) => callDomain(() => orderService.riderTransition(ctx.user.id, input))),
     confirmCodCollection: protectedProcedure.input(codCollectionConfirmInput).mutation(({ ctx, input }) => callDomain(() => orderService.confirmCodCollection(ctx.user.id, input))),
     updateRiderLocation: protectedProcedure.input(riderLocationUpdateInput).mutation(({ ctx, input }) => callDomain(() => orderService.updateRiderLocation(ctx.user.id, input))),
+    executeRiderCommand: protectedProcedure.input(riderCommandInput).mutation(({ ctx, input }) => callDomain(() => orderService.executeRiderCommand(ctx.user.id, input))),
+  }),
+  notifications: router({
+    mine: protectedProcedure.query(({ ctx }) => callDomain(() => notificationService.listMyNotifications(ctx.user.id))),
+    registerExpoDevice: protectedProcedure.input(expoDeviceTokenRegistrationInput).mutation(({ ctx, input }) => callDomain(() => notificationService.registerExpoDeviceToken(ctx.user.id, input))),
+    markRead: protectedProcedure.input(notificationIdInput).mutation(({ ctx, input }) => callDomain(() => notificationService.markMyNotificationRead(ctx.user.id, input.notificationId))),
   }),
   addresses: router({
     mine: protectedProcedure.query(({ ctx }) => callDomain(() => addressService.list(ctx.user.id))),
@@ -139,7 +151,10 @@ export const appRouter = router({
   }),
   support: router({
     mine: protectedProcedure.query(({ ctx }) => callDomain(() => supportService.listSupportTickets(ctx.user.id))),
+    byId: protectedProcedure.input(supportTicketIdInput).query(({ ctx, input }) => callDomain(() => supportService.getSupportTicket(ctx.user.id, input.ticketId))),
     create: protectedProcedure.input(supportTicketCreateInput).mutation(({ ctx, input }) => callDomain(() => supportService.createSupportTicket(ctx.user.id, input))),
+    reply: protectedProcedure.input(supportMessageCreateInput).mutation(({ ctx, input }) => callDomain(() => supportService.addCustomerSupportMessage(ctx.user.id, input))),
+    requestRefund: protectedProcedure.input(refundRequestCreateInput).mutation(({ ctx, input }) => callDomain(() => supportService.createRefundRequest(ctx.user.id, input))),
     notificationPreferences: protectedProcedure.query(({ ctx }) => callDomain(() => supportService.getNotificationPreferences(ctx.user.id))),
     updateNotificationPreferences: protectedProcedure.input(notificationPreferenceUpdateInput).mutation(({ ctx, input }) => callDomain(() => supportService.updateNotificationPreferences(ctx.user.id, input))),
   }),
@@ -170,6 +185,9 @@ export const appRouter = router({
     reviewAiTriage: adminCredentialWebProcedure.input(adminAiTriageReviewInput).mutation(({ ctx, input }) => callDomain(() => adminService.reviewAdminAiTriage(ctx.user!.id, input))),
     submitAiTriageFeedback: adminCredentialWebProcedure.input(adminAiTriageFeedbackInput).mutation(({ ctx, input }) => callDomain(() => adminService.submitAdminAiTriageFeedback(ctx.user!.id, input))),
     aiTriageQualityMetrics: adminCredentialWebProcedure.query(({ ctx }) => callDomain(() => adminService.getAdminAiTriageQualityMetrics(ctx.user!.id))),
+  }),
+  adminFinance: router({
+    decideRefund: adminCredentialWebProcedure.input(adminRefundDecisionInput).mutation(({ ctx, input }) => callDomain(() => adminService.decideRefundRequest(ctx.user!.id, input))),
   }),
   adminCredential: router({
     configuration: publicProcedure.query(() => adminCredentials.getAdminCredentialBootstrapConfiguration()),

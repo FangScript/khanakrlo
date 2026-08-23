@@ -43,8 +43,27 @@ export const codCollectionConfirmInput = z.object({
   if (input.varianceReason !== undefined && input.varianceReason.length < 3) context.addIssue({ code: z.ZodIssueCode.custom, path: ["varianceReason"], message: "Provide a meaningful variance reason." });
 });
 export const riderLocationUpdateInput = z.object({ orderId: z.number().int().positive(), latitudeE6: z.number().int().min(-90_000_000).max(90_000_000), longitudeE6: z.number().int().min(-180_000_000).max(180_000_000), accuracyMeters: z.number().int().min(0).max(10_000).optional() }).strict();
+const riderCommandKey = z.string().trim().min(16).max(120);
+const riderCodCollectionCommandInput = z.object({
+  type: z.literal("cod_collection"),
+  idempotencyKey: riderCommandKey,
+  orderId: z.number().int().positive(),
+  collectedMinor: z.number().int().min(0).max(10_000_000),
+  varianceReason: z.string().trim().min(3).max(500).optional(),
+}).strict().superRefine((input, context) => {
+  if (input.varianceReason !== undefined && input.varianceReason.length < 3) context.addIssue({ code: z.ZodIssueCode.custom, path: ["varianceReason"], message: "Provide a meaningful variance reason." });
+});
+export const riderCommandInput = z.union([
+  riderOfferDecisionInput.extend({ type: z.literal("offer_decision"), idempotencyKey: riderCommandKey }),
+  riderOrderTransitionInput.extend({ type: z.literal("transition"), idempotencyKey: riderCommandKey }),
+  riderCodCollectionCommandInput,
+  riderLocationUpdateInput.extend({ type: z.literal("location_update"), idempotencyKey: riderCommandKey }),
+  riderAvailabilityInput.extend({ type: z.literal("availability"), idempotencyKey: riderCommandKey }),
+]);
+export const dispatchRecommendationInput = z.object({ orderId: z.number().int().positive() }).strict();
 
 export type OrderQuoteInput = z.infer<typeof orderQuoteInput>;
 export type OrderPlaceInput = z.infer<typeof orderPlaceInput>;
 export type RiderAssignmentInput = z.infer<typeof riderAssignmentInput>;
 export type RiderCashHistoryFilterInput = z.infer<typeof riderCashHistoryFilterInput>;
+export type RiderCommandInput = z.infer<typeof riderCommandInput>;
