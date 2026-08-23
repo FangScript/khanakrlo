@@ -1,6 +1,6 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
-import { adminAiTriageAssessments, adminOperationalCases, adminStaffRoleEvents, adminStaffRoles, auditEvents, businessOrganisations, domainOutboxEvents, orderReviews, orders, reviewPhotoReports, reviewPhotos, riderCashAccountEntries, riderCashSettlementReceipts, supportTickets, users, workspaceApplications } from "../drizzle/schema";
+import { adminAiTriageAssessments, adminAiTriageFeedback, adminCaseAssignments, adminCaseEscalations, adminOperationalCases, adminStaffRoleEvents, adminStaffRoles, auditEvents, businessOrganisations, domainOutboxEvents, orderReviews, orders, reviewPhotoReports, reviewPhotos, riderCashAccountEntries, riderCashSettlementReceipts, supportTickets, users, workspaceApplications } from "../drizzle/schema";
 import { getDb } from "./db";
 import { suspendBusinessWorkspace, restoreBusinessWorkspace } from "./business-service";
 import { DomainError } from "./modules/gateway/domain-error";
@@ -16,6 +16,29 @@ const allowedRoles: Record<Capability, AdminStaffRole[]> = {
   business_emergency: ["senior_operations"],
 };
 const eventKey = (type: string, id: number) => `${type}:${id}:${crypto.randomUUID()}`;
+const SLA_MINUTES: Record<"normal" | "high" | "critical", number> = { normal: 24 * 60, high: 4 * 60, critical: 60 };
+const caseCapability = (caseType: "business_emergency" | "rider_remittance"): Capability => caseType === "business_emergency" ? "business_emergency" : "finance";
+const caseDueAt = (priority: "normal" | "high" | "critical", requestedDueAt?: string) => requestedDueAt ? new Date(requestedDueAt) : new Date(Date.now() + SLA_MINUTES[priority] * 60_000);
+function slaSnapshot(caseRow: typeof adminOperationalCases.$inferSelect, now = new Date()) {
+  if (!caseRow.reviewDueAt || caseRow.status === "resolved" || caseRow.status === "dismissed") return { dueAt: caseRow.reviewDueAt, state: "not_applicable" as const, minutesRemaining: null };
+  const minutesRemaining = Math.floor((caseRow.reviewDueAt.getTime() - now.getTime()) / 60_000);
+  return { dueAt: caseRow.reviewDueAt, state: minutesRemaining < 0 ? "breached" as const : minutesRemaining <= 60 ? "at_risk" as const : "on_track" as const, minutesRemaining };
+}
+async function materializeSlaEscalations(db: any, cases: (typeof adminOperationalCases.$inferSelect)[]) {
+  const candidates = cases.filter((caseRow) => ["at_risk", "breached"].includes(slaSnapshot(caseRow).state));
+  if (!candidates.length) return [];
+  const existing = await db.select().from(adminCaseEscalations).where(inArray(adminCaseEscalations.caseId, candidates.map((caseRow) => caseRow.id)));
+  const created: typeof adminCaseEscalations.$inferSelect[] = [];
+  for (const caseRow of candidates) {
+    const severity = slaSnapshot(caseRow).state as "at_risk" | "breached";
+    if (existing.some((row: typeof adminCaseEscalations.$inferSelect) => row.caseId === caseRow.id && row.severity === severity)) continue;
+    const result = await db.insert(adminCaseEscalations).values({ caseId: caseRow.id, severity, triggeredAt: new Date() });
+    const escalationId = Number(result[0].insertId);
+    const escalation = (await db.select().from(adminCaseEscalations).where(eq(adminCaseEscalations.id, escalationId)).limit(1))[0];
+    if (escalation) created.push(escalation);
+  }
+  return created;
+}
 
 async function requireDb() { const db = await getDb(); if (!db) throw new DomainError("UNAVAILABLE", "Admin operations are temporarily unavailable."); return db; }
 async function requireAdminIdentity(userId: number) {
@@ -50,12 +73,21 @@ export async function getAdminOperationalQueue(userId: number) {
     canFinance ? db.select().from(adminOperationalCases).where(eq(adminOperationalCases.caseType, "rider_remittance")).orderBy(desc(adminOperationalCases.updatedAt)).limit(100) : Promise.resolve([]),
     canFinance ? db.select().from(riderCashSettlementReceipts).orderBy(desc(riderCashSettlementReceipts.issuedAt)).limit(100) : Promise.resolve([]),
   ]);
-  await audit(userId, "admin_operational_queue", userId, "admin_queue_viewed", { staffRole, sections: ["support", "moderation", "business_emergency", "rider_remittance"] });
+  const operationalCases = [...businessCases, ...financeCases].sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime());
+  await materializeSlaEscalations(db, operationalCases);
+  const caseIds = operationalCases.map((caseRow) => caseRow.id);
+  const [assignments, escalations] = await Promise.all([
+    caseIds.length ? db.select().from(adminCaseAssignments).where(inArray(adminCaseAssignments.caseId, caseIds)).orderBy(desc(adminCaseAssignments.createdAt)) : Promise.resolve([]),
+    caseIds.length ? db.select().from(adminCaseEscalations).where(inArray(adminCaseEscalations.caseId, caseIds)).orderBy(desc(adminCaseEscalations.triggeredAt)) : Promise.resolve([]),
+  ]);
+  const activeEscalations = escalations.filter((escalation: typeof adminCaseEscalations.$inferSelect) => !escalation.acknowledgedAt);
+  await audit(userId, "admin_operational_queue", userId, "admin_queue_viewed", { staffRole, sections: ["support", "moderation", "business_emergency", "rider_remittance"], activeEscalations: activeEscalations.length });
   return {
     staffRole,
     supportTickets: tickets.map((ticket) => ({ id: ticket.id, category: ticket.category, subject: ticket.subject, status: ticket.status, orderId: ticket.orderId, customerReference: `Customer #${ticket.customerUserId}`, createdAt: ticket.createdAt, updatedAt: ticket.updatedAt })),
     photoReports: reports.map((report) => ({ id: report.id, photoId: report.photoId, reason: report.reason, status: report.status, createdAt: report.createdAt })),
-    operationalCases: [...businessCases, ...financeCases].sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime()),
+    operationalCases: operationalCases.map((caseRow) => ({ ...caseRow, sla: slaSnapshot(caseRow), latestAssignment: assignments.find((assignment: typeof adminCaseAssignments.$inferSelect) => assignment.caseId === caseRow.id) ?? null })),
+    escalationAlerts: activeEscalations.map((escalation: typeof adminCaseEscalations.$inferSelect) => ({ ...escalation, case: operationalCases.find((caseRow) => caseRow.id === escalation.caseId) ?? null })),
     remittanceReceipts: receipts.map((receipt) => ({ id: receipt.id, riderUserId: receipt.riderUserId, receiptCode: receipt.receiptCode, amountMinor: receipt.amountMinor, balanceAfterMinor: receipt.balanceAfterMinor, issuedAt: receipt.issuedAt })),
   };
 }
@@ -90,7 +122,7 @@ export async function openBusinessEmergencyCase(userId: number, input: { applica
   const { db } = await requireCapability(userId, "business_emergency");
   await suspendBusinessWorkspace(userId, input.applicationId, input.reason);
   const now = new Date();
-  await db.insert(adminOperationalCases).values({ caseType: "business_emergency", targetId: input.applicationId, status: "open", priority: input.priority, reason: input.reason, openedByUserId: userId, reviewDueAt: input.reviewDueAt ? new Date(input.reviewDueAt) : null, createdAt: now, updatedAt: now });
+  await db.insert(adminOperationalCases).values({ caseType: "business_emergency", targetId: input.applicationId, status: "open", priority: input.priority, reason: input.reason, openedByUserId: userId, reviewDueAt: caseDueAt(input.priority, input.reviewDueAt), createdAt: now, updatedAt: now });
   return { success: true } as const;
 }
 
@@ -108,25 +140,82 @@ export async function openRemittanceReviewCase(userId: number, input: { receiptI
   const receipt = (await db.select().from(riderCashSettlementReceipts).where(eq(riderCashSettlementReceipts.id, input.receiptId)).limit(1))[0];
   if (!receipt) throw new DomainError("NOT_FOUND", "Rider settlement receipt not found.");
   const now = new Date();
-  const result = await db.insert(adminOperationalCases).values({ caseType: "rider_remittance", targetId: receipt.id, status: "open", priority: input.priority, reason: input.reason, openedByUserId: userId, reviewDueAt: input.reviewDueAt ? new Date(input.reviewDueAt) : null, createdAt: now, updatedAt: now });
+  const result = await db.insert(adminOperationalCases).values({ caseType: "rider_remittance", targetId: receipt.id, status: "open", priority: input.priority, reason: input.reason, openedByUserId: userId, reviewDueAt: caseDueAt(input.priority, input.reviewDueAt), createdAt: now, updatedAt: now });
   const caseId = Number(result[0].insertId);
   await audit(userId, "rider_cash_settlement_receipt", receipt.id, "admin_remittance_review_opened", { caseId, receiptCode: receipt.receiptCode, reason: input.reason });
   return { caseId };
 }
 
 export async function updateAdminOperationalCase(userId: number, input: { caseId: number; status: "open" | "in_progress" | "resolved" | "dismissed"; internalNote?: string }) {
-  const { db } = await requireCapability(userId, "support");
+  const { db } = await requireAdminIdentity(userId);
   const caseRow = (await db.select().from(adminOperationalCases).where(eq(adminOperationalCases.id, input.caseId)).limit(1))[0];
   if (!caseRow) throw new DomainError("NOT_FOUND", "Operational case not found.");
-  const needsFinance = caseRow.caseType === "rider_remittance";
-  if (needsFinance) await requireCapability(userId, "finance");
-  if (caseRow.caseType === "business_emergency") await requireCapability(userId, "business_emergency");
+  await requireCapability(userId, caseCapability(caseRow.caseType));
   const now = new Date();
   await db.transaction(async (tx) => {
     await tx.update(adminOperationalCases).set({ status: input.status, internalNote: input.internalNote ?? caseRow.internalNote, assignedAdminUserId: userId, resolvedByUserId: input.status === "resolved" || input.status === "dismissed" ? userId : null, updatedAt: now }).where(eq(adminOperationalCases.id, input.caseId));
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "admin_operational_case", entityId: String(input.caseId), action: "admin_case_updated", previousValue: JSON.stringify({ status: caseRow.status }), nextValue: JSON.stringify({ status: input.status, internalNote: input.internalNote ?? null }) });
   });
   return { id: input.caseId, status: input.status };
+}
+
+export async function assignAdminOperationalCase(userId: number, input: { caseId: number; assignedToUserId: number; note?: string }) {
+  const { db } = await requireAdminIdentity(userId);
+  const caseRow = (await db.select().from(adminOperationalCases).where(eq(adminOperationalCases.id, input.caseId)).limit(1))[0];
+  if (!caseRow) throw new DomainError("NOT_FOUND", "Operational case not found.");
+  const capability = caseCapability(caseRow.caseType);
+  await requireCapability(userId, capability);
+  const target = (await db.select().from(users).where(eq(users.id, input.assignedToUserId)).limit(1))[0];
+  if (!target || target.role !== "admin") throw new DomainError("VALIDATION", "Cases can only be assigned to an existing internal Admin identity.");
+  const targetAssignment = (await db.select().from(adminStaffRoles).where(eq(adminStaffRoles.userId, input.assignedToUserId)).limit(1))[0];
+  const targetRole = (targetAssignment?.staffRole ?? "senior_operations") as AdminStaffRole;
+  if (targetAssignment?.status === "inactive" || !allowedRoles[capability].includes(targetRole)) throw new DomainError("FORBIDDEN", "The selected staff member does not have the required active role for this case.");
+  const now = new Date();
+  const assignmentType = caseRow.assignedAdminUserId ? "reassigned" as const : "assigned" as const;
+  await db.transaction(async (tx) => {
+    await tx.update(adminOperationalCases).set({ assignedAdminUserId: input.assignedToUserId, status: caseRow.status === "open" ? "in_progress" : caseRow.status, updatedAt: now }).where(eq(adminOperationalCases.id, caseRow.id));
+    await tx.insert(adminCaseAssignments).values({ caseId: caseRow.id, assignedByUserId: userId, assignedToUserId: input.assignedToUserId, assignmentType, note: input.note ?? null, createdAt: now });
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "admin_operational_case", entityId: String(caseRow.id), action: `admin_case_${assignmentType}`, previousValue: JSON.stringify({ assignedAdminUserId: caseRow.assignedAdminUserId }), nextValue: JSON.stringify({ assignedToUserId: input.assignedToUserId, note: input.note ?? null }) });
+  });
+  return { caseId: caseRow.id, assignedToUserId: input.assignedToUserId, assignmentType };
+}
+
+export async function acknowledgeAdminSlaEscalation(userId: number, escalationId: number) {
+  const { db } = await requireAdminIdentity(userId);
+  const escalation = (await db.select().from(adminCaseEscalations).where(eq(adminCaseEscalations.id, escalationId)).limit(1))[0];
+  if (!escalation) throw new DomainError("NOT_FOUND", "SLA escalation not found.");
+  const caseRow = (await db.select().from(adminOperationalCases).where(eq(adminOperationalCases.id, escalation.caseId)).limit(1))[0];
+  if (!caseRow) throw new DomainError("NOT_FOUND", "Escalated case not found.");
+  await requireCapability(userId, caseCapability(caseRow.caseType));
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx.update(adminCaseEscalations).set({ acknowledgedByUserId: userId, acknowledgedAt: now }).where(eq(adminCaseEscalations.id, escalationId));
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "admin_case_escalation", entityId: String(escalationId), action: "admin_sla_escalation_acknowledged", nextValue: JSON.stringify({ caseId: caseRow.id, severity: escalation.severity }) });
+  });
+  return { id: escalationId, acknowledgedAt: now };
+}
+
+export async function bulkModerateAdminPhotoReports(userId: number, input: { reportIds: number[]; action: "resolved" | "dismissed"; confirmation: string; internalNote?: string }) {
+  const { db } = await requireCapability(userId, "moderation");
+  const expectedConfirmation = `CONFIRM ${input.reportIds.length} PHOTO REPORT${input.reportIds.length === 1 ? "" : "S"}`;
+  if (input.confirmation !== expectedConfirmation) throw new DomainError("VALIDATION", `Type exactly “${expectedConfirmation}” to confirm this bulk moderation action.`);
+  const [reports, assessments] = await Promise.all([
+    db.select().from(reviewPhotoReports).where(inArray(reviewPhotoReports.id, input.reportIds)),
+    db.select().from(adminAiTriageAssessments).where(and(eq(adminAiTriageAssessments.subjectType, "photo_report"), inArray(adminAiTriageAssessments.subjectId, input.reportIds))),
+  ]);
+  if (reports.length !== input.reportIds.length) throw new DomainError("NOT_FOUND", "One or more selected photo reports no longer exist.");
+  const unassessedIds = input.reportIds.filter((reportId) => !assessments.some((assessment: typeof adminAiTriageAssessments.$inferSelect) => assessment.subjectId === reportId));
+  if (unassessedIds.length) throw new DomainError("CONFLICT", "Bulk moderation is limited to photo reports with an existing AI advisory assessment.");
+  if (reports.some((report: typeof reviewPhotoReports.$inferSelect) => report.status !== "open")) throw new DomainError("CONFLICT", "Bulk moderation can only include currently open photo reports.");
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    for (const report of reports) {
+      await tx.update(reviewPhotoReports).set({ status: input.action, reviewedByUserId: userId, reviewedAt: now }).where(eq(reviewPhotoReports.id, report.id));
+      await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "review_photo_report", entityId: String(report.id), action: "admin_photo_report_bulk_moderated", previousValue: JSON.stringify({ status: report.status }), nextValue: JSON.stringify({ status: input.action, internalNote: input.internalNote ?? null, confirmation: expectedConfirmation }) });
+    }
+    await tx.insert(domainOutboxEvents).values({ domain: "moderation", eventType: "review_photo_report.bulk_moderated", aggregateType: "review_photo_report_batch", aggregateId: input.reportIds.join(","), payload: JSON.stringify({ reportIds: input.reportIds, action: input.action, actorUserId: userId }), deduplicationKey: eventKey("review_photo_report.bulk_moderated", input.reportIds[0]) });
+  });
+  return { moderatedReportIds: input.reportIds, action: input.action, confirmation: expectedConfirmation };
 }
 
 export async function getAdminCaseDetail(userId: number, input: { subjectType: "support_ticket" | "photo_report" | "business_emergency" | "rider_remittance"; subjectId: number }) {
@@ -279,4 +368,45 @@ export async function reviewAdminAiTriage(userId: number, input: { assessmentId:
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "admin_ai_triage_assessment", entityId: String(input.assessmentId), action: "admin_ai_triage_human_reviewed", previousValue: JSON.stringify({ reviewState: assessment.reviewState }), nextValue: JSON.stringify({ reviewState: input.reviewState }) });
   });
   return { id: input.assessmentId, reviewState: input.reviewState };
+}
+
+export async function submitAdminAiTriageFeedback(userId: number, input: { assessmentId: number; outcome: "confirmed_accurate" | "false_positive" | "false_negative" | "needs_more_evidence"; note?: string }) {
+  const { db } = await requireAdminIdentity(userId);
+  const assessment = (await db.select().from(adminAiTriageAssessments).where(eq(adminAiTriageAssessments.id, input.assessmentId)).limit(1))[0];
+  if (!assessment) throw new DomainError("NOT_FOUND", "AI triage assessment not found.");
+  const capability: Capability = assessment.subjectType === "photo_report" ? "moderation" : "business_emergency";
+  await requireCapability(userId, capability);
+  if (assessment.reviewState === "pending_human_review") throw new DomainError("CONFLICT", "A human must acknowledge or override the AI assessment before recording quality feedback.");
+  const now = new Date();
+  const result = await db.insert(adminAiTriageFeedback).values({ assessmentId: assessment.id, submittedByUserId: userId, outcome: input.outcome, note: input.note ?? null, createdAt: now });
+  const feedbackId = Number(result[0].insertId);
+  await db.transaction(async (tx) => {
+    await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "admin_ai_triage_feedback", entityId: String(feedbackId), action: "admin_ai_triage_feedback_recorded", nextValue: JSON.stringify({ assessmentId: assessment.id, outcome: input.outcome, note: input.note ?? null }) });
+    await tx.insert(domainOutboxEvents).values({ domain: "admin", eventType: "admin.ai_triage_feedback_recorded", aggregateType: "admin_ai_triage_assessment", aggregateId: String(assessment.id), payload: JSON.stringify({ feedbackId, assessmentId: assessment.id, outcome: input.outcome }), deduplicationKey: eventKey("admin.ai_triage_feedback_recorded", feedbackId) });
+  });
+  return { feedbackId, assessmentId: assessment.id, outcome: input.outcome, createdAt: now };
+}
+
+export async function getAdminAiTriageQualityMetrics(userId: number) {
+  const { db } = await requireCapability(userId, "business_emergency");
+  const [assessments, feedback] = await Promise.all([
+    db.select().from(adminAiTriageAssessments).orderBy(desc(adminAiTriageAssessments.createdAt)).limit(1000),
+    db.select().from(adminAiTriageFeedback).orderBy(desc(adminAiTriageFeedback.createdAt)).limit(1000),
+  ]);
+  const latestFeedbackByAssessment = new Map<number, typeof adminAiTriageFeedback.$inferSelect>();
+  for (const row of feedback) if (!latestFeedbackByAssessment.has(row.assessmentId)) latestFeedbackByAssessment.set(row.assessmentId, row);
+  const latestFeedback = [...latestFeedbackByAssessment.values()];
+  const feedbackCounts = { confirmed_accurate: 0, false_positive: 0, false_negative: 0, needs_more_evidence: 0 };
+  for (const row of latestFeedback) feedbackCounts[row.outcome] += 1;
+  const labeled = latestFeedback.length;
+  const averageConfidenceBps = assessments.length ? Math.round(assessments.reduce((sum, assessment) => sum + assessment.confidenceBps, 0) / assessments.length) : null;
+  const byModel = [...new Set(assessments.map((assessment) => assessment.model))].map((model) => {
+    const modelAssessments = assessments.filter((assessment) => assessment.model === model);
+    const modelIds = new Set(modelAssessments.map((assessment) => assessment.id));
+    const modelFeedback = latestFeedback.filter((row) => modelIds.has(row.assessmentId));
+    const falsePositives = modelFeedback.filter((row) => row.outcome === "false_positive").length;
+    return { model, assessmentCount: modelAssessments.length, labeledCount: modelFeedback.length, averageConfidenceBps: modelAssessments.length ? Math.round(modelAssessments.reduce((sum, assessment) => sum + assessment.confidenceBps, 0) / modelAssessments.length) : null, falsePositiveRateBps: modelFeedback.length ? Math.round((falsePositives / modelFeedback.length) * 10_000) : null };
+  });
+  await audit(userId, "admin_ai_triage_quality", userId, "admin_ai_triage_quality_viewed", { assessmentCount: assessments.length, labeledCount: labeled });
+  return { assessmentCount: assessments.length, labeledCount: labeled, feedbackCoverageBps: assessments.length ? Math.round((labeled / assessments.length) * 10_000) : 0, averageConfidenceBps, falsePositiveRateBps: labeled ? Math.round((feedbackCounts.false_positive / labeled) * 10_000) : null, falseNegativeRateBps: labeled ? Math.round((feedbackCounts.false_negative / labeled) * 10_000) : null, feedbackCounts, byModel };
 }

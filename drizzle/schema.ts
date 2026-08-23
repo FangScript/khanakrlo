@@ -412,10 +412,25 @@ export const adminOperationalCases = mysqlTable("admin_operational_cases", {
   id: int("id").autoincrement().primaryKey(), caseType: mysqlEnum("caseType", ["business_emergency", "rider_remittance"]).notNull(), targetId: int("targetId").notNull(), status: mysqlEnum("status", ["open", "in_progress", "resolved", "dismissed"]).default("open").notNull(), priority: mysqlEnum("priority", ["normal", "high", "critical"]).default("normal").notNull(), reason: varchar("reason", { length: 500 }).notNull(), internalNote: text("internalNote"), assignedAdminUserId: int("assignedAdminUserId"), openedByUserId: int("openedByUserId").notNull(), resolvedByUserId: int("resolvedByUserId"), reviewDueAt: timestamp("reviewDueAt"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [index("admin_operational_cases_status_created_index").on(table.status, table.createdAt), index("admin_operational_cases_target_index").on(table.caseType, table.targetId), index("admin_operational_cases_assignee_index").on(table.assignedAdminUserId, table.status)]);
 
+/** Append-only ownership transitions for operational cases; the live assignee remains on the case for fast queue reads. */
+export const adminCaseAssignments = mysqlTable("admin_case_assignments", {
+  id: int("id").autoincrement().primaryKey(), caseId: int("caseId").notNull(), assignedByUserId: int("assignedByUserId").notNull(), assignedToUserId: int("assignedToUserId").notNull(), assignmentType: mysqlEnum("assignmentType", ["assigned", "reassigned"]).notNull(), note: varchar("note", { length: 500 }), createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("admin_case_assignments_case_created_index").on(table.caseId, table.createdAt), index("admin_case_assignments_assignee_created_index").on(table.assignedToUserId, table.createdAt)]);
+
+/** Escalation records make SLA risk and breach visible in the Admin dashboard without invoking external notification providers. */
+export const adminCaseEscalations = mysqlTable("admin_case_escalations", {
+  id: int("id").autoincrement().primaryKey(), caseId: int("caseId").notNull(), severity: mysqlEnum("severity", ["at_risk", "breached"]).notNull(), triggeredAt: timestamp("triggeredAt").defaultNow().notNull(), acknowledgedByUserId: int("acknowledgedByUserId"), acknowledgedAt: timestamp("acknowledgedAt"),
+}, (table) => [uniqueIndex("admin_case_escalations_case_severity_unique").on(table.caseId, table.severity), index("admin_case_escalations_acknowledged_triggered_index").on(table.acknowledgedAt, table.triggeredAt)]);
+
 /** Advisory model outputs are retained for review. They cannot change a report, case, Business, order, or financial record. */
 export const adminAiTriageAssessments = mysqlTable("admin_ai_triage_assessments", {
   id: int("id").autoincrement().primaryKey(), subjectType: mysqlEnum("subjectType", ["photo_report", "business_emergency"]).notNull(), subjectId: int("subjectId").notNull(), requestedByUserId: int("requestedByUserId").notNull(), model: varchar("model", { length: 120 }).notNull(), inputSummary: text("inputSummary").notNull(), assessmentSummary: varchar("assessmentSummary", { length: 1000 }).notNull(), confidenceBps: int("confidenceBps").notNull(), recommendedPriority: mysqlEnum("recommendedPriority", ["normal", "high", "critical"]).notNull(), suggestedDisposition: mysqlEnum("suggestedDisposition", ["retain_for_human_review", "prioritize_review", "additional_evidence_needed"]).notNull(), safetySignalsJson: text("safetySignalsJson").notNull(), reviewState: mysqlEnum("reviewState", ["pending_human_review", "acknowledged", "overridden"]).default("pending_human_review").notNull(), humanReviewedByUserId: int("humanReviewedByUserId"), humanReviewedAt: timestamp("humanReviewedAt"), createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [index("admin_ai_triage_subject_created_index").on(table.subjectType, table.subjectId, table.createdAt), index("admin_ai_triage_review_state_created_index").on(table.reviewState, table.createdAt)]);
+
+/** Human quality labels close the learning loop without retraining or changing live model behavior automatically. */
+export const adminAiTriageFeedback = mysqlTable("admin_ai_triage_feedback", {
+  id: int("id").autoincrement().primaryKey(), assessmentId: int("assessmentId").notNull(), submittedByUserId: int("submittedByUserId").notNull(), outcome: mysqlEnum("outcome", ["confirmed_accurate", "false_positive", "false_negative", "needs_more_evidence"]).notNull(), note: varchar("note", { length: 1000 }), createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("admin_ai_triage_feedback_assessment_created_index").on(table.assessmentId, table.createdAt), index("admin_ai_triage_feedback_outcome_created_index").on(table.outcome, table.createdAt)]);
 
 /** Restaurant KDS acknowledgement is distinct from acceptance so new-order alerts can be safely dismissed without altering the order state. */
 export const orderKitchenAcknowledgements = mysqlTable("order_kitchen_acknowledgements", {

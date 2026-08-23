@@ -172,3 +172,9 @@
 - [x] Integrate server-side multimodal AI assessment for reported photos and text-only emergency-case triage, without automatic enforcement.
 - [x] Add Admin interfaces for case details, staff-role provisioning, and manually triggered AI triage review.
 - [x] Add deterministic coverage for case-detail masking/audit, role delegation, AI-triage guardrails, and no-auto-enforcement behavior.
+- [x] Add Admin case assignment, claim/reassignment history, SLA due-at computation, and overdue escalation records.
+- [x] Add SLA-aware Admin queue filters and escalation alert visibility without background provider notifications.
+- [x] Add confirmation-gated bulk moderation review for AI-assessed photo reports.
+- [x] Add AI triage quality metrics, human outcome labeling, and false-positive feedback records.
+- [x] Add Admin response-management, bulk moderation, and AI quality-monitoring interfaces.
+- [x] Add deterministic validation for assignment/RBAC, SLA escalation, confirmation-gated bulk moderation, and AI quality feedback.

@@ -17,7 +17,7 @@ import { reviewBusinessInput, reviewCreateInput, reviewModerationInput, reviewOr
 import { reviewService } from "./modules/reviews/service";
 import { notificationPreferenceUpdateInput, supportTicketCreateInput } from "./modules/contracts/support";
 import * as supportService from "./support-service";
-import { adminAiTriageInput, adminAiTriageReviewInput, adminBusinessEmergencyInput, adminCaseDetailInput, adminOperationalCaseUpdateInput, adminPhotoReportStatusInput, adminRemittanceCaseInput, adminStaffRoleProvisionInput, adminSupportTicketStatusInput } from "./modules/contracts/admin";
+import { adminAiTriageFeedbackInput, adminAiTriageInput, adminAiTriageReviewInput, adminBulkPhotoModerationInput, adminBusinessEmergencyInput, adminCaseAssignmentInput, adminCaseDetailInput, adminOperationalCaseUpdateInput, adminPhotoReportStatusInput, adminRemittanceCaseInput, adminSlaEscalationAcknowledgeInput, adminStaffRoleProvisionInput, adminSupportTicketStatusInput } from "./modules/contracts/admin";
 import * as adminService from "./admin-service";
 
 export const appRouter = router({
@@ -153,8 +153,13 @@ export const appRouter = router({
     restoreBusiness: protectedProcedure.input(businessEmergencyRestoreInput).mutation(({ ctx, input }) => callDomain(() => adminService.restoreBusinessEmergency(ctx.user.id, input.applicationId))),
     openRemittanceReview: protectedProcedure.input(adminRemittanceCaseInput).mutation(({ ctx, input }) => callDomain(() => adminService.openRemittanceReviewCase(ctx.user.id, input))),
     updateCase: protectedProcedure.input(adminOperationalCaseUpdateInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminOperationalCase(ctx.user.id, input))),
+    assignCase: protectedProcedure.input(adminCaseAssignmentInput).mutation(({ ctx, input }) => callDomain(() => adminService.assignAdminOperationalCase(ctx.user.id, input))),
+    acknowledgeSlaEscalation: protectedProcedure.input(adminSlaEscalationAcknowledgeInput).mutation(({ ctx, input }) => callDomain(() => adminService.acknowledgeAdminSlaEscalation(ctx.user.id, input.escalationId))),
+    bulkModeratePhotoReports: protectedProcedure.input(adminBulkPhotoModerationInput).mutation(({ ctx, input }) => callDomain(() => adminService.bulkModerateAdminPhotoReports(ctx.user.id, input))),
     runAiTriage: protectedProcedure.input(adminAiTriageInput).mutation(({ ctx, input }) => callDomain(() => adminService.runAdminAiTriage(ctx.user.id, input))),
     reviewAiTriage: protectedProcedure.input(adminAiTriageReviewInput).mutation(({ ctx, input }) => callDomain(() => adminService.reviewAdminAiTriage(ctx.user.id, input))),
+    submitAiTriageFeedback: protectedProcedure.input(adminAiTriageFeedbackInput).mutation(({ ctx, input }) => callDomain(() => adminService.submitAdminAiTriageFeedback(ctx.user.id, input))),
+    aiTriageQualityMetrics: protectedProcedure.query(({ ctx }) => callDomain(() => adminService.getAdminAiTriageQualityMetrics(ctx.user.id))),
   }),
 
 });

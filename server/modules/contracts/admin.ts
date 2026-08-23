@@ -49,3 +49,22 @@ export const adminAiTriageReviewInput = z.object({
   assessmentId: z.number().int().positive(),
   reviewState: z.enum(["acknowledged", "overridden"]),
 }).strict();
+export const adminCaseAssignmentInput = z.object({
+  caseId: z.number().int().positive(),
+  assignedToUserId: z.number().int().positive(),
+  note: z.string().trim().min(3).max(500).optional(),
+}).strict();
+export const adminBulkPhotoModerationInput = z.object({
+  reportIds: z.array(z.number().int().positive()).min(1).max(50).refine((ids) => new Set(ids).size === ids.length, "Report IDs must be unique."),
+  action: z.enum(["resolved", "dismissed"]),
+  confirmation: z.string().trim().min(1).max(80),
+  internalNote: z.string().trim().min(3).max(1000).optional(),
+}).strict();
+export const adminSlaEscalationAcknowledgeInput = z.object({
+  escalationId: z.number().int().positive(),
+}).strict();
+export const adminAiTriageFeedbackInput = z.object({
+  assessmentId: z.number().int().positive(),
+  outcome: z.enum(["confirmed_accurate", "false_positive", "false_negative", "needs_more_evidence"]),
+  note: z.string().trim().min(3).max(1000).optional(),
+}).strict();
