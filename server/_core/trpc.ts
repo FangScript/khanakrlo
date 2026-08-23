@@ -2,6 +2,7 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from "../../shared/const.js";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
+import { enforceAdminWebAccess, AdminWebSecurityError } from "../admin-security";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -41,5 +42,17 @@ export const adminProcedure = t.procedure.use(
         user: ctx.user,
       },
     });
+  }),
+);
+
+export const adminWebProcedure = adminProcedure.use(
+  t.middleware(async (opts) => {
+    try {
+      await enforceAdminWebAccess(opts.ctx.user!.id, opts.ctx.req);
+    } catch (error) {
+      const message = error instanceof AdminWebSecurityError ? error.message : "Admin web security validation failed.";
+      throw new TRPCError({ code: "FORBIDDEN", message });
+    }
+    return opts.next();
   }),
 );

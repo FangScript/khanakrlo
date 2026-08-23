@@ -182,3 +182,9 @@
 - [x] Block native Admin route rendering while preserving protected web access for authorized internal staff.
 - [x] Add a web-only Admin console entry path and web-focused access guidance.
 - [x] Add deterministic validation that Admin is hidden from mobile roles and available only on web for authorized staff.
+- [x] Add OAuth-backed web-admin sign-in gating with staff role verification and login-attempt records.
+- [x] Add TOTP MFA enrollment, challenge verification, recovery-code controls, and trusted-session expiry for Admin staff.
+- [x] Add server-enforced Admin IP allowlist controls with audited configuration changes and denied-attempt records.
+- [x] Add Admin subdomain configuration readiness with environment-driven canonical-host enforcement and publishing guidance.
+- [x] Add a web session-audit dashboard for staff sessions, login attempts, MFA outcomes, IP decisions, and activity summaries.
+- [x] Add deterministic validation for MFA gating, IP controls, session audit privacy, and canonical Admin web access.

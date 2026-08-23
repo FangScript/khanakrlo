@@ -1,7 +1,7 @@
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, adminWebProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { businessOnboardingService } from "./modules/business-onboarding/service";
 import { catalogueService } from "./modules/catalogue/service";
 import { businessDocumentUploadInput, businessDraftInput, businessEmergencyRestoreInput, businessEmergencySuspensionInput, businessHoursUpdateInput, businessLiveStatusInput, catalogueCategoryArchiveInput, catalogueCategoryCreateInput, catalogueCategoryUpdateInput, catalogueItemArchiveInput, catalogueItemCreateInput, catalogueItemImageUploadInput, catalogueItemUpdateInput, catalogueModifierArchiveInput, catalogueModifierCreateInput, catalogueModifierUpdateInput, deliveryZoneUpdateInput, discoveryFilterInput, liveBusinessMenuInput } from "./modules/contracts/business";
@@ -19,6 +19,14 @@ import { notificationPreferenceUpdateInput, supportTicketCreateInput } from "./m
 import * as supportService from "./support-service";
 import { adminAiTriageFeedbackInput, adminAiTriageInput, adminAiTriageReviewInput, adminBulkPhotoModerationInput, adminBusinessEmergencyInput, adminCaseAssignmentInput, adminCaseDetailInput, adminOperationalCaseUpdateInput, adminPhotoReportStatusInput, adminRemittanceCaseInput, adminSlaEscalationAcknowledgeInput, adminStaffRoleProvisionInput, adminSupportTicketStatusInput } from "./modules/contracts/admin";
 import * as adminService from "./admin-service";
+import { getAdminWebConfiguration } from "./admin-security";
+import * as adminSecurity from "./admin-security";
+import { adminIpAllowlistCreateInput, adminIpAllowlistStatusInput, adminMfaCodeInput, adminWebSessionRevokeInput } from "./modules/contracts/admin-security";
+import { TRPCError } from "@trpc/server";
+
+const callAdminSecurity = async <T>(operation: () => Promise<T>) => {
+  try { return await operation(); } catch (error) { throw new TRPCError({ code: "FORBIDDEN", message: error instanceof Error ? error.message : "Admin security validation failed." }); }
+};
 
 export const appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -135,31 +143,43 @@ export const appRouter = router({
   }),
 
   adminBusiness: router({
-    listBusinesses: protectedProcedure.query(({ ctx }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); return callDomain(() => businessOnboardingService.listApplications()); }),
-    suspend: protectedProcedure.input(businessEmergencySuspensionInput).mutation(async ({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); await callDomain(() => businessOnboardingService.suspendBusiness(ctx.user.id, input.applicationId, input.reason)); return { success: true } as const; }),
-    restore: protectedProcedure.input(businessEmergencyRestoreInput).mutation(async ({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); await callDomain(() => businessOnboardingService.restoreBusiness(ctx.user.id, input.applicationId)); return { success: true } as const; }),
+    listBusinesses: adminWebProcedure.query(() => callDomain(() => businessOnboardingService.listApplications())),
+    suspend: adminWebProcedure.input(businessEmergencySuspensionInput).mutation(async ({ ctx, input }) => { await callDomain(() => businessOnboardingService.suspendBusiness(ctx.user.id, input.applicationId, input.reason)); return { success: true } as const; }),
+    restore: adminWebProcedure.input(businessEmergencyRestoreInput).mutation(async ({ ctx, input }) => { await callDomain(() => businessOnboardingService.restoreBusiness(ctx.user.id, input.applicationId)); return { success: true } as const; }),
   }),
   adminReviews: router({
-    moderate: protectedProcedure.input(reviewModerationInput).mutation(({ ctx, input }) => { if (ctx.user.role !== "admin") throw new Error("Administrator access is required."); return callDomain(() => reviewService.moderate(ctx.user.id, input.reviewId, input.visibility, input.note)); }),
+    moderate: adminWebProcedure.input(reviewModerationInput).mutation(({ ctx, input }) => callDomain(() => reviewService.moderate(ctx.user.id, input.reviewId, input.visibility, input.note))),
   }),
   adminOperations: router({
-    queue: protectedProcedure.query(({ ctx }) => callDomain(() => adminService.getAdminOperationalQueue(ctx.user.id))),
-    caseDetail: protectedProcedure.input(adminCaseDetailInput).query(({ ctx, input }) => callDomain(() => adminService.getAdminCaseDetail(ctx.user.id, input))),
-    staffDirectory: protectedProcedure.query(({ ctx }) => callDomain(() => adminService.listAdminStaffDirectory(ctx.user.id))),
-    provisionStaffRole: protectedProcedure.input(adminStaffRoleProvisionInput).mutation(({ ctx, input }) => callDomain(() => adminService.provisionAdminStaffRole(ctx.user.id, input))),
-    updateSupportTicket: protectedProcedure.input(adminSupportTicketStatusInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminSupportTicket(ctx.user.id, input))),
-    updatePhotoReport: protectedProcedure.input(adminPhotoReportStatusInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminPhotoReport(ctx.user.id, input))),
-    suspendBusiness: protectedProcedure.input(adminBusinessEmergencyInput).mutation(({ ctx, input }) => callDomain(() => adminService.openBusinessEmergencyCase(ctx.user.id, input))),
-    restoreBusiness: protectedProcedure.input(businessEmergencyRestoreInput).mutation(({ ctx, input }) => callDomain(() => adminService.restoreBusinessEmergency(ctx.user.id, input.applicationId))),
-    openRemittanceReview: protectedProcedure.input(adminRemittanceCaseInput).mutation(({ ctx, input }) => callDomain(() => adminService.openRemittanceReviewCase(ctx.user.id, input))),
-    updateCase: protectedProcedure.input(adminOperationalCaseUpdateInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminOperationalCase(ctx.user.id, input))),
-    assignCase: protectedProcedure.input(adminCaseAssignmentInput).mutation(({ ctx, input }) => callDomain(() => adminService.assignAdminOperationalCase(ctx.user.id, input))),
-    acknowledgeSlaEscalation: protectedProcedure.input(adminSlaEscalationAcknowledgeInput).mutation(({ ctx, input }) => callDomain(() => adminService.acknowledgeAdminSlaEscalation(ctx.user.id, input.escalationId))),
-    bulkModeratePhotoReports: protectedProcedure.input(adminBulkPhotoModerationInput).mutation(({ ctx, input }) => callDomain(() => adminService.bulkModerateAdminPhotoReports(ctx.user.id, input))),
-    runAiTriage: protectedProcedure.input(adminAiTriageInput).mutation(({ ctx, input }) => callDomain(() => adminService.runAdminAiTriage(ctx.user.id, input))),
-    reviewAiTriage: protectedProcedure.input(adminAiTriageReviewInput).mutation(({ ctx, input }) => callDomain(() => adminService.reviewAdminAiTriage(ctx.user.id, input))),
-    submitAiTriageFeedback: protectedProcedure.input(adminAiTriageFeedbackInput).mutation(({ ctx, input }) => callDomain(() => adminService.submitAdminAiTriageFeedback(ctx.user.id, input))),
-    aiTriageQualityMetrics: protectedProcedure.query(({ ctx }) => callDomain(() => adminService.getAdminAiTriageQualityMetrics(ctx.user.id))),
+    queue: adminWebProcedure.query(({ ctx }) => callDomain(() => adminService.getAdminOperationalQueue(ctx.user.id))),
+    caseDetail: adminWebProcedure.input(adminCaseDetailInput).query(({ ctx, input }) => callDomain(() => adminService.getAdminCaseDetail(ctx.user.id, input))),
+    staffDirectory: adminWebProcedure.query(({ ctx }) => callDomain(() => adminService.listAdminStaffDirectory(ctx.user.id))),
+    provisionStaffRole: adminWebProcedure.input(adminStaffRoleProvisionInput).mutation(({ ctx, input }) => callDomain(() => adminService.provisionAdminStaffRole(ctx.user.id, input))),
+    updateSupportTicket: adminWebProcedure.input(adminSupportTicketStatusInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminSupportTicket(ctx.user.id, input))),
+    updatePhotoReport: adminWebProcedure.input(adminPhotoReportStatusInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminPhotoReport(ctx.user.id, input))),
+    suspendBusiness: adminWebProcedure.input(adminBusinessEmergencyInput).mutation(({ ctx, input }) => callDomain(() => adminService.openBusinessEmergencyCase(ctx.user.id, input))),
+    restoreBusiness: adminWebProcedure.input(businessEmergencyRestoreInput).mutation(({ ctx, input }) => callDomain(() => adminService.restoreBusinessEmergency(ctx.user.id, input.applicationId))),
+    openRemittanceReview: adminWebProcedure.input(adminRemittanceCaseInput).mutation(({ ctx, input }) => callDomain(() => adminService.openRemittanceReviewCase(ctx.user.id, input))),
+    updateCase: adminWebProcedure.input(adminOperationalCaseUpdateInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminOperationalCase(ctx.user.id, input))),
+    assignCase: adminWebProcedure.input(adminCaseAssignmentInput).mutation(({ ctx, input }) => callDomain(() => adminService.assignAdminOperationalCase(ctx.user.id, input))),
+    acknowledgeSlaEscalation: adminWebProcedure.input(adminSlaEscalationAcknowledgeInput).mutation(({ ctx, input }) => callDomain(() => adminService.acknowledgeAdminSlaEscalation(ctx.user.id, input.escalationId))),
+    bulkModeratePhotoReports: adminWebProcedure.input(adminBulkPhotoModerationInput).mutation(({ ctx, input }) => callDomain(() => adminService.bulkModerateAdminPhotoReports(ctx.user.id, input))),
+    runAiTriage: adminWebProcedure.input(adminAiTriageInput).mutation(({ ctx, input }) => callDomain(() => adminService.runAdminAiTriage(ctx.user.id, input))),
+    reviewAiTriage: adminWebProcedure.input(adminAiTriageReviewInput).mutation(({ ctx, input }) => callDomain(() => adminService.reviewAdminAiTriage(ctx.user.id, input))),
+    submitAiTriageFeedback: adminWebProcedure.input(adminAiTriageFeedbackInput).mutation(({ ctx, input }) => callDomain(() => adminService.submitAdminAiTriageFeedback(ctx.user.id, input))),
+    aiTriageQualityMetrics: adminWebProcedure.query(({ ctx }) => callDomain(() => adminService.getAdminAiTriageQualityMetrics(ctx.user.id))),
+  }),
+  adminSecurity: router({
+    webConfiguration: adminProcedure.query(() => getAdminWebConfiguration()),
+    status: adminProcedure.query(({ ctx }) => callAdminSecurity(() => adminSecurity.getAdminSecurityStatus(ctx.user.id, ctx.req))),
+    beginMfaEnrollment: adminProcedure.mutation(({ ctx }) => callAdminSecurity(() => adminSecurity.beginAdminMfaEnrollment(ctx.user.id, ctx.req))),
+    confirmMfaEnrollment: adminProcedure.input(adminMfaCodeInput).mutation(async ({ ctx, input }) => { const result = await callAdminSecurity(() => adminSecurity.confirmAdminMfaEnrollment(ctx.user.id, ctx.req, input.code)); adminSecurity.setAdminMfaCookie(ctx.res, ctx.req, result.token, result.expiresAt); return { recoveryCodes: result.recoveryCodes, expiresAt: result.expiresAt }; }),
+    verifyMfaChallenge: adminProcedure.input(adminMfaCodeInput).mutation(async ({ ctx, input }) => { const result = await callAdminSecurity(() => adminSecurity.verifyAdminMfaChallenge(ctx.user.id, ctx.req, input.code)); adminSecurity.setAdminMfaCookie(ctx.res, ctx.req, result.token, result.expiresAt); return { expiresAt: result.expiresAt }; }),
+    allowlist: adminWebProcedure.query(({ ctx }) => callAdminSecurity(() => adminSecurity.listAdminIpAllowlist(ctx.user.id))),
+    createAllowlistRule: adminWebProcedure.input(adminIpAllowlistCreateInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminSecurity.createAdminIpAllowlistRule(ctx.user.id, input))),
+    updateAllowlistRule: adminWebProcedure.input(adminIpAllowlistStatusInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminSecurity.updateAdminIpAllowlistRule(ctx.user.id, input))),
+    sessionAudit: adminWebProcedure.query(({ ctx }) => callAdminSecurity(() => adminSecurity.getAdminSessionAudit(ctx.user.id))),
+    revokeSession: adminWebProcedure.input(adminWebSessionRevokeInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminSecurity.revokeAdminWebSession(ctx.user.id, input.sessionId))),
   }),
 
 });

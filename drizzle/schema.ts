@@ -432,6 +432,31 @@ export const adminAiTriageFeedback = mysqlTable("admin_ai_triage_feedback", {
   id: int("id").autoincrement().primaryKey(), assessmentId: int("assessmentId").notNull(), submittedByUserId: int("submittedByUserId").notNull(), outcome: mysqlEnum("outcome", ["confirmed_accurate", "false_positive", "false_negative", "needs_more_evidence"]).notNull(), note: varchar("note", { length: 1000 }), createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [index("admin_ai_triage_feedback_assessment_created_index").on(table.assessmentId, table.createdAt), index("admin_ai_triage_feedback_outcome_created_index").on(table.outcome, table.createdAt)]);
 
+/** Encrypted TOTP material is held server-side; raw shared secrets are shown only during enrollment. */
+export const adminMfaEnrollments = mysqlTable("admin_mfa_enrollments", {
+  id: int("id").autoincrement().primaryKey(), userId: int("userId").notNull(), secretCiphertext: text("secretCiphertext").notNull(), status: mysqlEnum("status", ["pending", "active", "disabled"]).default("pending").notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), confirmedAt: timestamp("confirmedAt"), disabledAt: timestamp("disabledAt"),
+}, (table) => [uniqueIndex("admin_mfa_enrollment_user_unique").on(table.userId), index("admin_mfa_enrollment_status_created_index").on(table.status, table.createdAt)]);
+
+/** One-time recovery codes are stored only as hashes and can never be reconstructed. */
+export const adminMfaRecoveryCodes = mysqlTable("admin_mfa_recovery_codes", {
+  id: int("id").autoincrement().primaryKey(), enrollmentId: int("enrollmentId").notNull(), codeHash: varchar("codeHash", { length: 128 }).notNull(), usedAt: timestamp("usedAt"), createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("admin_mfa_recovery_enrollment_used_index").on(table.enrollmentId, table.usedAt), uniqueIndex("admin_mfa_recovery_hash_unique").on(table.codeHash)]);
+
+/** Opaque, browser-bound MFA sessions sit in front of the long-lived platform OAuth session. */
+export const adminWebSessions = mysqlTable("admin_web_sessions", {
+  id: int("id").autoincrement().primaryKey(), userId: int("userId").notNull(), tokenHash: varchar("tokenHash", { length: 128 }).notNull(), ipAddress: varchar("ipAddress", { length: 64 }).notNull(), host: varchar("host", { length: 255 }).notNull(), userAgent: varchar("userAgent", { length: 500 }), mfaVerifiedAt: timestamp("mfaVerifiedAt").notNull(), lastSeenAt: timestamp("lastSeenAt").notNull(), expiresAt: timestamp("expiresAt").notNull(), revokedAt: timestamp("revokedAt"), revokedByUserId: int("revokedByUserId"), createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [uniqueIndex("admin_web_sessions_token_unique").on(table.tokenHash), index("admin_web_sessions_user_expiry_index").on(table.userId, table.expiresAt), index("admin_web_sessions_active_expiry_index").on(table.revokedAt, table.expiresAt)]);
+
+/** Security-relevant authentication decisions are retained independently from general operational audit events. */
+export const adminWebLoginAttempts = mysqlTable("admin_web_login_attempts", {
+  id: int("id").autoincrement().primaryKey(), userId: int("userId"), eventType: mysqlEnum("eventType", ["oauth_authenticated", "mfa_enrollment_started", "mfa_enrollment_confirmed", "mfa_succeeded", "mfa_failed", "recovery_code_used", "ip_denied", "host_denied", "session_revoked"]).notNull(), success: boolean("success").notNull(), ipAddress: varchar("ipAddress", { length: 64 }).notNull(), host: varchar("host", { length: 255 }).notNull(), userAgent: varchar("userAgent", { length: 500 }), reason: varchar("reason", { length: 500 }), createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("admin_web_login_user_created_index").on(table.userId, table.createdAt), index("admin_web_login_event_created_index").on(table.eventType, table.createdAt)]);
+
+/** A non-empty active ruleset enables default-deny IPv4 CIDR allowlisting for the web-only Admin console. */
+export const adminIpAllowlist = mysqlTable("admin_ip_allowlist", {
+  id: int("id").autoincrement().primaryKey(), cidr: varchar("cidr", { length: 64 }).notNull(), label: varchar("label", { length: 120 }).notNull(), status: mysqlEnum("status", ["active", "disabled"]).default("active").notNull(), createdByUserId: int("createdByUserId").notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [uniqueIndex("admin_ip_allowlist_cidr_unique").on(table.cidr), index("admin_ip_allowlist_status_created_index").on(table.status, table.createdAt)]);
+
 /** Restaurant KDS acknowledgement is distinct from acceptance so new-order alerts can be safely dismissed without altering the order state. */
 export const orderKitchenAcknowledgements = mysqlTable("order_kitchen_acknowledgements", {
   id: int("id").autoincrement().primaryKey(),
