@@ -35,17 +35,18 @@ describe("Admin web security contract", () => {
     expect(security).toContain("cidrMatches");
     expect(security).toContain("This network address is not authorized for the Admin console.");
     expect(security).toContain("session.ipAddress !== meta.ipAddress || session.host !== meta.host");
-    expect(trpc).toContain("adminWebProcedure");
-    expect(router).toContain("queue: adminWebProcedure");
-    expect(router).toContain("sessionAudit: adminWebProcedure");
+    expect(trpc).toContain("adminCredentialProcedure");
+    expect(trpc).toContain("adminCredentialWebProcedure");
+    expect(router).toContain("queue: adminCredentialWebProcedure");
+    expect(router).toContain("sessionAudit: adminCredentialWebProcedure");
   });
 
   it("offers a web-only staff MFA gate and a privacy-safe session audit surface", () => {
     const gate = source("app/admin/_layout.tsx");
     const screen = source("app/admin/security.tsx");
     const security = source("server/admin-security.ts");
-    expect(gate).toContain("Staff sign-in required");
-    expect(gate).toContain("Set up multi-factor authentication");
+    expect(gate).toContain("Admin staff sign-in");
+    expect(gate).toContain("Set up MFA");
     expect(gate).toContain("Verify and continue");
     expect(screen).toContain("Sessions & access audit");
     expect(screen).toContain("IP allowlist");

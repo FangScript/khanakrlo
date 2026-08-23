@@ -457,6 +457,21 @@ export const adminWebSecurityAlerts = mysqlTable("admin_web_security_alerts", {
   id: int("id").autoincrement().primaryKey(), alertType: mysqlEnum("alertType", ["repeated_mfa_failures", "repeated_ip_denials"]).notNull(), scopeKey: varchar("scopeKey", { length: 160 }).notNull(), lastEventCount: int("lastEventCount").notNull(), lastDeliveredAt: timestamp("lastDeliveredAt").notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [uniqueIndex("admin_web_security_alert_scope_unique").on(table.alertType, table.scopeKey), index("admin_web_security_alert_delivered_index").on(table.lastDeliveredAt)]);
 
+/** Staff credentials are separate from marketplace identities and store only salted password hashes. */
+export const adminStaffCredentials = mysqlTable("admin_staff_credentials", {
+  id: int("id").autoincrement().primaryKey(), userId: int("userId").notNull(), username: varchar("username", { length: 80 }).notNull(), passwordHash: varchar("passwordHash", { length: 255 }).notNull(), status: mysqlEnum("status", ["active", "disabled"]).default("active").notNull(), passwordChangedAt: timestamp("passwordChangedAt").defaultNow().notNull(), createdByUserId: int("createdByUserId"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [uniqueIndex("admin_staff_credentials_user_unique").on(table.userId), uniqueIndex("admin_staff_credentials_username_unique").on(table.username), index("admin_staff_credentials_status_index").on(table.status)]);
+
+/** Short-lived opaque credential sessions are valid only until the Admin MFA challenge succeeds. */
+export const adminCredentialSessions = mysqlTable("admin_credential_sessions", {
+  id: int("id").autoincrement().primaryKey(), userId: int("userId").notNull(), tokenHash: varchar("tokenHash", { length: 128 }).notNull(), ipAddress: varchar("ipAddress", { length: 64 }).notNull(), host: varchar("host", { length: 255 }).notNull(), expiresAt: timestamp("expiresAt").notNull(), revokedAt: timestamp("revokedAt"), createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [uniqueIndex("admin_credential_sessions_token_unique").on(table.tokenHash), index("admin_credential_sessions_user_expiry_index").on(table.userId, table.expiresAt)]);
+
+/** Persisted credential attempts support rate limits without reusing MFA or marketplace audit categories. */
+export const adminCredentialLoginAttempts = mysqlTable("admin_credential_login_attempts", {
+  id: int("id").autoincrement().primaryKey(), username: varchar("username", { length: 80 }).notNull(), ipAddress: varchar("ipAddress", { length: 64 }).notNull(), success: boolean("success").notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("admin_credential_login_username_created_index").on(table.username, table.createdAt), index("admin_credential_login_ip_created_index").on(table.ipAddress, table.createdAt)]);
+
 /** A non-empty active ruleset enables default-deny IPv4 CIDR allowlisting for the web-only Admin console. */
 export const adminIpAllowlist = mysqlTable("admin_ip_allowlist", {
   id: int("id").autoincrement().primaryKey(), cidr: varchar("cidr", { length: 64 }).notNull(), label: varchar("label", { length: 120 }).notNull(), status: mysqlEnum("status", ["active", "disabled"]).default("active").notNull(), createdByUserId: int("createdByUserId").notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

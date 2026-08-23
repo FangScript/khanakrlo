@@ -176,6 +176,20 @@
       "when": 1787466759763,
       "tag": "0024_slippery_chat",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1787467821056,
+      "tag": "0025_white_devos",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1787467871972,
+      "tag": "0026_perfect_mongoose",
+      "breakpoints": true
     }
   ]
 }

@@ -194,3 +194,8 @@
 - [x] Add deterministic validation for alert threshold/cooldown behavior and scoped session-audit filtering.
 - [x] Add a privacy-safe CSV export of the currently filtered Admin session-audit results for authorized web staff.
 - [x] Add deterministic validation that CSV export retains selected filters and excludes raw session credentials.
+- [x] Add unique staff usernames, salted password hashes, credential events, and password-reset records for the web-only Admin console.
+- [x] Add rate-limited Admin username-password sign-in that creates a short-lived credential session before MFA.
+- [x] Add senior-operator credential provisioning and password reset controls without exposing password material.
+- [x] Update the Admin web gate to use username-password sign-in before MFA and protect every internal Admin API with the credential session.
+- [x] Add deterministic validation for credential hashing, failed-login rate limits, session separation, password reset, and MFA continuation.

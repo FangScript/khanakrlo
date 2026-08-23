@@ -11,4 +11,6 @@ export const ENV = {
   resendApiKey: process.env.RESEND_API_KEY ?? "",
   securityAlertFrom: process.env.SECURITY_ALERT_FROM ?? "",
   securityAlertTo: process.env.SECURITY_ALERT_TO ?? "",
+  adminBootstrapUsername: process.env.ADMIN_BOOTSTRAP_USERNAME ?? "",
+  adminBootstrapPassword: process.env.ADMIN_BOOTSTRAP_PASSWORD ?? "",
 };

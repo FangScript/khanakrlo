@@ -36,7 +36,7 @@ describe("Admin security alerts and audit filters", () => {
     expect(security).toContain("filters.from");
     expect(security).toContain("filters.userId");
     expect(security).toContain("filters.eventType");
-    expect(router).toContain("sessionAudit: adminWebProcedure.input(adminSessionAuditFilterInput.optional())");
+    expect(router).toContain("sessionAudit: adminCredentialWebProcedure.input(adminSessionAuditFilterInput.optional())");
   });
 
   it("provides explicit dashboard filter controls without exposing raw session tokens or addresses", () => {

@@ -7,10 +7,10 @@ const source = (path: string) => readFileSync(resolve(process.cwd(), path), "utf
 describe("web-only Admin console separation", () => {
   it("blocks the entire Admin route family on native while preserving the protected web route tree", () => {
     const layout = source("app/admin/_layout.tsx");
-    expect(layout).toContain('Platform.OS !== "web"');
+    expect(layout).toContain('Platform.OS === "web"');
     expect(layout).toContain("Admin console is web-only");
-    expect(layout).toContain("Authorized Khana KarLo staff must use the protected Admin website.");
-    expect(layout).toContain("return <Slot />");
+    expect(layout).toContain("Internal operations are available only through the protected Admin website.");
+    expect(layout).toContain("return <Slot/>");
   });
 
   it("keeps the unified mobile workspace hub limited to Customer, Business, and Rider roles", () => {

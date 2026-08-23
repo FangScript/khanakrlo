@@ -1,7 +1,7 @@
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { adminProcedure, adminWebProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminCredentialProcedure, adminCredentialWebProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { businessOnboardingService } from "./modules/business-onboarding/service";
 import { catalogueService } from "./modules/catalogue/service";
 import { businessDocumentUploadInput, businessDraftInput, businessEmergencyRestoreInput, businessEmergencySuspensionInput, businessHoursUpdateInput, businessLiveStatusInput, catalogueCategoryArchiveInput, catalogueCategoryCreateInput, catalogueCategoryUpdateInput, catalogueItemArchiveInput, catalogueItemCreateInput, catalogueItemImageUploadInput, catalogueItemUpdateInput, catalogueModifierArchiveInput, catalogueModifierCreateInput, catalogueModifierUpdateInput, deliveryZoneUpdateInput, discoveryFilterInput, liveBusinessMenuInput } from "./modules/contracts/business";
@@ -22,6 +22,8 @@ import * as adminService from "./admin-service";
 import { getAdminWebConfiguration } from "./admin-security";
 import * as adminSecurity from "./admin-security";
 import { adminIpAllowlistCreateInput, adminIpAllowlistStatusInput, adminMfaCodeInput, adminSessionAuditFilterInput, adminWebSessionRevokeInput } from "./modules/contracts/admin-security";
+import { adminCredentialProvisionInput, adminCredentialSignInInput } from "./modules/contracts/admin-credentials";
+import * as adminCredentials from "./admin-credentials";
 import { TRPCError } from "@trpc/server";
 
 const callAdminSecurity = async <T>(operation: () => Promise<T>) => {
@@ -143,43 +145,49 @@ export const appRouter = router({
   }),
 
   adminBusiness: router({
-    listBusinesses: adminWebProcedure.query(() => callDomain(() => businessOnboardingService.listApplications())),
-    suspend: adminWebProcedure.input(businessEmergencySuspensionInput).mutation(async ({ ctx, input }) => { await callDomain(() => businessOnboardingService.suspendBusiness(ctx.user.id, input.applicationId, input.reason)); return { success: true } as const; }),
-    restore: adminWebProcedure.input(businessEmergencyRestoreInput).mutation(async ({ ctx, input }) => { await callDomain(() => businessOnboardingService.restoreBusiness(ctx.user.id, input.applicationId)); return { success: true } as const; }),
+    listBusinesses: adminCredentialWebProcedure.query(() => callDomain(() => businessOnboardingService.listApplications())),
+    suspend: adminCredentialWebProcedure.input(businessEmergencySuspensionInput).mutation(async ({ ctx, input }) => { await callDomain(() => businessOnboardingService.suspendBusiness(ctx.user!.id, input.applicationId, input.reason)); return { success: true } as const; }),
+    restore: adminCredentialWebProcedure.input(businessEmergencyRestoreInput).mutation(async ({ ctx, input }) => { await callDomain(() => businessOnboardingService.restoreBusiness(ctx.user!.id, input.applicationId)); return { success: true } as const; }),
   }),
   adminReviews: router({
-    moderate: adminWebProcedure.input(reviewModerationInput).mutation(({ ctx, input }) => callDomain(() => reviewService.moderate(ctx.user.id, input.reviewId, input.visibility, input.note))),
+    moderate: adminCredentialWebProcedure.input(reviewModerationInput).mutation(({ ctx, input }) => callDomain(() => reviewService.moderate(ctx.user!.id, input.reviewId, input.visibility, input.note))),
   }),
   adminOperations: router({
-    queue: adminWebProcedure.query(({ ctx }) => callDomain(() => adminService.getAdminOperationalQueue(ctx.user.id))),
-    caseDetail: adminWebProcedure.input(adminCaseDetailInput).query(({ ctx, input }) => callDomain(() => adminService.getAdminCaseDetail(ctx.user.id, input))),
-    staffDirectory: adminWebProcedure.query(({ ctx }) => callDomain(() => adminService.listAdminStaffDirectory(ctx.user.id))),
-    provisionStaffRole: adminWebProcedure.input(adminStaffRoleProvisionInput).mutation(({ ctx, input }) => callDomain(() => adminService.provisionAdminStaffRole(ctx.user.id, input))),
-    updateSupportTicket: adminWebProcedure.input(adminSupportTicketStatusInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminSupportTicket(ctx.user.id, input))),
-    updatePhotoReport: adminWebProcedure.input(adminPhotoReportStatusInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminPhotoReport(ctx.user.id, input))),
-    suspendBusiness: adminWebProcedure.input(adminBusinessEmergencyInput).mutation(({ ctx, input }) => callDomain(() => adminService.openBusinessEmergencyCase(ctx.user.id, input))),
-    restoreBusiness: adminWebProcedure.input(businessEmergencyRestoreInput).mutation(({ ctx, input }) => callDomain(() => adminService.restoreBusinessEmergency(ctx.user.id, input.applicationId))),
-    openRemittanceReview: adminWebProcedure.input(adminRemittanceCaseInput).mutation(({ ctx, input }) => callDomain(() => adminService.openRemittanceReviewCase(ctx.user.id, input))),
-    updateCase: adminWebProcedure.input(adminOperationalCaseUpdateInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminOperationalCase(ctx.user.id, input))),
-    assignCase: adminWebProcedure.input(adminCaseAssignmentInput).mutation(({ ctx, input }) => callDomain(() => adminService.assignAdminOperationalCase(ctx.user.id, input))),
-    acknowledgeSlaEscalation: adminWebProcedure.input(adminSlaEscalationAcknowledgeInput).mutation(({ ctx, input }) => callDomain(() => adminService.acknowledgeAdminSlaEscalation(ctx.user.id, input.escalationId))),
-    bulkModeratePhotoReports: adminWebProcedure.input(adminBulkPhotoModerationInput).mutation(({ ctx, input }) => callDomain(() => adminService.bulkModerateAdminPhotoReports(ctx.user.id, input))),
-    runAiTriage: adminWebProcedure.input(adminAiTriageInput).mutation(({ ctx, input }) => callDomain(() => adminService.runAdminAiTriage(ctx.user.id, input))),
-    reviewAiTriage: adminWebProcedure.input(adminAiTriageReviewInput).mutation(({ ctx, input }) => callDomain(() => adminService.reviewAdminAiTriage(ctx.user.id, input))),
-    submitAiTriageFeedback: adminWebProcedure.input(adminAiTriageFeedbackInput).mutation(({ ctx, input }) => callDomain(() => adminService.submitAdminAiTriageFeedback(ctx.user.id, input))),
-    aiTriageQualityMetrics: adminWebProcedure.query(({ ctx }) => callDomain(() => adminService.getAdminAiTriageQualityMetrics(ctx.user.id))),
+    queue: adminCredentialWebProcedure.query(({ ctx }) => callDomain(() => adminService.getAdminOperationalQueue(ctx.user!.id))),
+    caseDetail: adminCredentialWebProcedure.input(adminCaseDetailInput).query(({ ctx, input }) => callDomain(() => adminService.getAdminCaseDetail(ctx.user!.id, input))),
+    staffDirectory: adminCredentialWebProcedure.query(({ ctx }) => callDomain(() => adminService.listAdminStaffDirectory(ctx.user!.id))),
+    provisionStaffRole: adminCredentialWebProcedure.input(adminStaffRoleProvisionInput).mutation(({ ctx, input }) => callDomain(() => adminService.provisionAdminStaffRole(ctx.user!.id, input))),
+    updateSupportTicket: adminCredentialWebProcedure.input(adminSupportTicketStatusInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminSupportTicket(ctx.user!.id, input))),
+    updatePhotoReport: adminCredentialWebProcedure.input(adminPhotoReportStatusInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminPhotoReport(ctx.user!.id, input))),
+    suspendBusiness: adminCredentialWebProcedure.input(adminBusinessEmergencyInput).mutation(({ ctx, input }) => callDomain(() => adminService.openBusinessEmergencyCase(ctx.user!.id, input))),
+    restoreBusiness: adminCredentialWebProcedure.input(businessEmergencyRestoreInput).mutation(({ ctx, input }) => callDomain(() => adminService.restoreBusinessEmergency(ctx.user!.id, input.applicationId))),
+    openRemittanceReview: adminCredentialWebProcedure.input(adminRemittanceCaseInput).mutation(({ ctx, input }) => callDomain(() => adminService.openRemittanceReviewCase(ctx.user!.id, input))),
+    updateCase: adminCredentialWebProcedure.input(adminOperationalCaseUpdateInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminOperationalCase(ctx.user!.id, input))),
+    assignCase: adminCredentialWebProcedure.input(adminCaseAssignmentInput).mutation(({ ctx, input }) => callDomain(() => adminService.assignAdminOperationalCase(ctx.user!.id, input))),
+    acknowledgeSlaEscalation: adminCredentialWebProcedure.input(adminSlaEscalationAcknowledgeInput).mutation(({ ctx, input }) => callDomain(() => adminService.acknowledgeAdminSlaEscalation(ctx.user!.id, input.escalationId))),
+    bulkModeratePhotoReports: adminCredentialWebProcedure.input(adminBulkPhotoModerationInput).mutation(({ ctx, input }) => callDomain(() => adminService.bulkModerateAdminPhotoReports(ctx.user!.id, input))),
+    runAiTriage: adminCredentialWebProcedure.input(adminAiTriageInput).mutation(({ ctx, input }) => callDomain(() => adminService.runAdminAiTriage(ctx.user!.id, input))),
+    reviewAiTriage: adminCredentialWebProcedure.input(adminAiTriageReviewInput).mutation(({ ctx, input }) => callDomain(() => adminService.reviewAdminAiTriage(ctx.user!.id, input))),
+    submitAiTriageFeedback: adminCredentialWebProcedure.input(adminAiTriageFeedbackInput).mutation(({ ctx, input }) => callDomain(() => adminService.submitAdminAiTriageFeedback(ctx.user!.id, input))),
+    aiTriageQualityMetrics: adminCredentialWebProcedure.query(({ ctx }) => callDomain(() => adminService.getAdminAiTriageQualityMetrics(ctx.user!.id))),
+  }),
+  adminCredential: router({
+    configuration: publicProcedure.query(() => adminCredentials.getAdminCredentialBootstrapConfiguration()),
+    status: publicProcedure.query(({ ctx }) => callAdminSecurity(() => adminCredentials.getAdminCredentialStatus(ctx.req))),
+    signIn: publicProcedure.input(adminCredentialSignInInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminCredentials.signInAdminCredential(ctx.req, ctx.res, input))),
+    provision: adminCredentialWebProcedure.input(adminCredentialProvisionInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminCredentials.provisionAdminCredential(ctx.user!.id, input))),
   }),
   adminSecurity: router({
-    webConfiguration: adminProcedure.query(() => getAdminWebConfiguration()),
-    status: adminProcedure.query(({ ctx }) => callAdminSecurity(() => adminSecurity.getAdminSecurityStatus(ctx.user.id, ctx.req))),
-    beginMfaEnrollment: adminProcedure.mutation(({ ctx }) => callAdminSecurity(() => adminSecurity.beginAdminMfaEnrollment(ctx.user.id, ctx.req))),
-    confirmMfaEnrollment: adminProcedure.input(adminMfaCodeInput).mutation(async ({ ctx, input }) => { const result = await callAdminSecurity(() => adminSecurity.confirmAdminMfaEnrollment(ctx.user.id, ctx.req, input.code)); adminSecurity.setAdminMfaCookie(ctx.res, ctx.req, result.token, result.expiresAt); return { recoveryCodes: result.recoveryCodes, expiresAt: result.expiresAt }; }),
-    verifyMfaChallenge: adminProcedure.input(adminMfaCodeInput).mutation(async ({ ctx, input }) => { const result = await callAdminSecurity(() => adminSecurity.verifyAdminMfaChallenge(ctx.user.id, ctx.req, input.code)); adminSecurity.setAdminMfaCookie(ctx.res, ctx.req, result.token, result.expiresAt); return { expiresAt: result.expiresAt }; }),
-    allowlist: adminWebProcedure.query(({ ctx }) => callAdminSecurity(() => adminSecurity.listAdminIpAllowlist(ctx.user.id))),
-    createAllowlistRule: adminWebProcedure.input(adminIpAllowlistCreateInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminSecurity.createAdminIpAllowlistRule(ctx.user.id, input))),
-    updateAllowlistRule: adminWebProcedure.input(adminIpAllowlistStatusInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminSecurity.updateAdminIpAllowlistRule(ctx.user.id, input))),
-    sessionAudit: adminWebProcedure.input(adminSessionAuditFilterInput.optional()).query(({ ctx, input }) => callAdminSecurity(() => adminSecurity.getAdminSessionAudit(ctx.user.id, input))),
-    revokeSession: adminWebProcedure.input(adminWebSessionRevokeInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminSecurity.revokeAdminWebSession(ctx.user.id, input.sessionId))),
+    webConfiguration: publicProcedure.query(() => getAdminWebConfiguration()),
+    status: adminCredentialProcedure.query(({ ctx }) => callAdminSecurity(() => adminSecurity.getAdminSecurityStatus(ctx.user!.id, ctx.req))),
+    beginMfaEnrollment: adminCredentialProcedure.mutation(({ ctx }) => callAdminSecurity(() => adminSecurity.beginAdminMfaEnrollment(ctx.user!.id, ctx.req))),
+    confirmMfaEnrollment: adminCredentialProcedure.input(adminMfaCodeInput).mutation(async ({ ctx, input }) => { const result = await callAdminSecurity(() => adminSecurity.confirmAdminMfaEnrollment(ctx.user!.id, ctx.req, input.code)); adminSecurity.setAdminMfaCookie(ctx.res, ctx.req, result.token, result.expiresAt); return { recoveryCodes: result.recoveryCodes, expiresAt: result.expiresAt }; }),
+    verifyMfaChallenge: adminCredentialProcedure.input(adminMfaCodeInput).mutation(async ({ ctx, input }) => { const result = await callAdminSecurity(() => adminSecurity.verifyAdminMfaChallenge(ctx.user!.id, ctx.req, input.code)); adminSecurity.setAdminMfaCookie(ctx.res, ctx.req, result.token, result.expiresAt); return { expiresAt: result.expiresAt }; }),
+    allowlist: adminCredentialWebProcedure.query(({ ctx }) => callAdminSecurity(() => adminSecurity.listAdminIpAllowlist(ctx.user!.id))),
+    createAllowlistRule: adminCredentialWebProcedure.input(adminIpAllowlistCreateInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminSecurity.createAdminIpAllowlistRule(ctx.user!.id, input))),
+    updateAllowlistRule: adminCredentialWebProcedure.input(adminIpAllowlistStatusInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminSecurity.updateAdminIpAllowlistRule(ctx.user!.id, input))),
+    sessionAudit: adminCredentialWebProcedure.input(adminSessionAuditFilterInput.optional()).query(({ ctx, input }) => callAdminSecurity(() => adminSecurity.getAdminSessionAudit(ctx.user!.id, input))),
+    revokeSession: adminCredentialWebProcedure.input(adminWebSessionRevokeInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminSecurity.revokeAdminWebSession(ctx.user!.id, input.sessionId))),
   }),
 
 });
