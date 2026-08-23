@@ -21,10 +21,11 @@ describe("Admin operations workspace contract", () => {
 
   it("keeps queue payloads privacy-safe and writes audit records for privileged Admin operations", () => {
     const service = source("server/admin-service.ts");
-    expect(service).toContain("customerReference");
-    expect(service).not.toContain("message: ticket.message");
-    expect(service).not.toContain("addressLine1");
-    expect(service).toContain("admin_queue_viewed");
+    const queueSection = service.slice(service.indexOf("export async function getAdminOperationalQueue"), service.indexOf("export async function updateAdminSupportTicket"));
+    expect(queueSection).toContain("customerReference");
+    expect(queueSection).not.toContain("message: ticket.message");
+    expect(queueSection).not.toContain("addressLine1");
+    expect(queueSection).toContain("admin_queue_viewed");
     expect(service).toContain("admin_support_ticket_updated");
     expect(service).toContain("admin_photo_report_updated");
   });

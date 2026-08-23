@@ -30,3 +30,22 @@ export const adminBusinessEmergencyInput = z.object({
   priority: z.enum(["normal", "high", "critical"]).default("high"),
   reviewDueAt: z.string().datetime({ offset: true }).optional(),
 }).strict();
+
+export const adminCaseDetailInput = z.object({
+  subjectType: z.enum(["support_ticket", "photo_report", "business_emergency", "rider_remittance"]),
+  subjectId: z.number().int().positive(),
+}).strict();
+export const adminStaffRoleProvisionInput = z.object({
+  userId: z.number().int().positive(),
+  staffRole: z.enum(ADMIN_STAFF_ROLES),
+  status: z.enum(["active", "inactive"]),
+  note: z.string().trim().min(3).max(500).optional(),
+}).strict();
+export const adminAiTriageInput = z.object({
+  subjectType: z.enum(["photo_report", "business_emergency"]),
+  subjectId: z.number().int().positive(),
+}).strict();
+export const adminAiTriageReviewInput = z.object({
+  assessmentId: z.number().int().positive(),
+  reviewState: z.enum(["acknowledged", "overridden"]),
+}).strict();

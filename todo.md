@@ -166,3 +166,9 @@
 - [x] Add Admin Rider remittance reconciliation visibility with immutable receipt and ledger context.
 - [x] Add provider-ready contracts for AI review, payments/refunds, fiscal reporting, and global configuration without activating providers.
 - [x] Add deterministic validation for Admin RBAC, privacy boundaries, operational queues, suspension, and remittance review access.
+- [x] Add scoped, audit-logged Admin case-detail views with linked order, report, and remittance context.
+- [x] Add senior-operator staff-role provisioning, delegation, deactivation, and assignment history.
+- [x] Add retained AI triage records for photo reports and emergency cases with model, confidence, rationale, and human-review state.
+- [x] Integrate server-side multimodal AI assessment for reported photos and text-only emergency-case triage, without automatic enforcement.
+- [x] Add Admin interfaces for case details, staff-role provisioning, and manually triggered AI triage review.
+- [x] Add deterministic coverage for case-detail masking/audit, role delegation, AI-triage guardrails, and no-auto-enforcement behavior.

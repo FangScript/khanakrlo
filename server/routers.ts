@@ -17,7 +17,7 @@ import { reviewBusinessInput, reviewCreateInput, reviewModerationInput, reviewOr
 import { reviewService } from "./modules/reviews/service";
 import { notificationPreferenceUpdateInput, supportTicketCreateInput } from "./modules/contracts/support";
 import * as supportService from "./support-service";
-import { adminBusinessEmergencyInput, adminOperationalCaseUpdateInput, adminPhotoReportStatusInput, adminRemittanceCaseInput, adminSupportTicketStatusInput } from "./modules/contracts/admin";
+import { adminAiTriageInput, adminAiTriageReviewInput, adminBusinessEmergencyInput, adminCaseDetailInput, adminOperationalCaseUpdateInput, adminPhotoReportStatusInput, adminRemittanceCaseInput, adminStaffRoleProvisionInput, adminSupportTicketStatusInput } from "./modules/contracts/admin";
 import * as adminService from "./admin-service";
 
 export const appRouter = router({
@@ -144,12 +144,17 @@ export const appRouter = router({
   }),
   adminOperations: router({
     queue: protectedProcedure.query(({ ctx }) => callDomain(() => adminService.getAdminOperationalQueue(ctx.user.id))),
+    caseDetail: protectedProcedure.input(adminCaseDetailInput).query(({ ctx, input }) => callDomain(() => adminService.getAdminCaseDetail(ctx.user.id, input))),
+    staffDirectory: protectedProcedure.query(({ ctx }) => callDomain(() => adminService.listAdminStaffDirectory(ctx.user.id))),
+    provisionStaffRole: protectedProcedure.input(adminStaffRoleProvisionInput).mutation(({ ctx, input }) => callDomain(() => adminService.provisionAdminStaffRole(ctx.user.id, input))),
     updateSupportTicket: protectedProcedure.input(adminSupportTicketStatusInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminSupportTicket(ctx.user.id, input))),
     updatePhotoReport: protectedProcedure.input(adminPhotoReportStatusInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminPhotoReport(ctx.user.id, input))),
     suspendBusiness: protectedProcedure.input(adminBusinessEmergencyInput).mutation(({ ctx, input }) => callDomain(() => adminService.openBusinessEmergencyCase(ctx.user.id, input))),
     restoreBusiness: protectedProcedure.input(businessEmergencyRestoreInput).mutation(({ ctx, input }) => callDomain(() => adminService.restoreBusinessEmergency(ctx.user.id, input.applicationId))),
     openRemittanceReview: protectedProcedure.input(adminRemittanceCaseInput).mutation(({ ctx, input }) => callDomain(() => adminService.openRemittanceReviewCase(ctx.user.id, input))),
     updateCase: protectedProcedure.input(adminOperationalCaseUpdateInput).mutation(({ ctx, input }) => callDomain(() => adminService.updateAdminOperationalCase(ctx.user.id, input))),
+    runAiTriage: protectedProcedure.input(adminAiTriageInput).mutation(({ ctx, input }) => callDomain(() => adminService.runAdminAiTriage(ctx.user.id, input))),
+    reviewAiTriage: protectedProcedure.input(adminAiTriageReviewInput).mutation(({ ctx, input }) => callDomain(() => adminService.reviewAdminAiTriage(ctx.user.id, input))),
   }),
 
 });
