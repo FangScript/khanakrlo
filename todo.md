@@ -192,3 +192,5 @@
 - [x] Add server-authoritative session-audit filters for date range, Admin user, and security event type.
 - [x] Add date, staff-user, and event-type filters to the Admin session-audit dashboard.
 - [x] Add deterministic validation for alert threshold/cooldown behavior and scoped session-audit filtering.
+- [x] Add a privacy-safe CSV export of the currently filtered Admin session-audit results for authorized web staff.
+- [x] Add deterministic validation that CSV export retains selected filters and excludes raw session credentials.
