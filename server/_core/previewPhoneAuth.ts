@@ -7,6 +7,14 @@ import { sdk } from "./sdk";
 
 const PAKISTAN_MOBILE = /^3\d{9}$/;
 
+function createPreviewUserId(openId: string) {
+  let hash = 0;
+  for (const character of openId) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  return Math.max(1, hash % 2_000_000_000);
+}
+
 /**
  * Temporary local-phone session for the explicitly preview-only OTP flow.
  * Real SMS delivery remains separate and must replace this route before launch.
@@ -23,8 +31,18 @@ export function registerPreviewPhoneAuthRoutes(app: Express) {
     const now = new Date();
     try {
       await upsertUser({ openId, name: "Phone preview user", email: null, loginMethod: "preview_phone", lastSignedIn: now });
-      const user = await getUserByOpenId(openId);
-      if (!user) throw new Error("Preview phone user could not be created.");
+      const persistedUser = await getUserByOpenId(openId);
+      const user = persistedUser ?? {
+        id: createPreviewUserId(openId),
+        openId,
+        name: "Phone preview user",
+        email: null,
+        loginMethod: "preview_phone",
+        lastSignedIn: now,
+      };
+      if (!persistedUser) {
+        console.warn("[PreviewPhoneAuth] Database unavailable; using an in-memory preview user");
+      }
 
       const sessionToken = await sdk.createSessionToken(openId, { name: "Phone preview user", expiresInMs: ONE_YEAR_MS });
       res.cookie(COOKIE_NAME, sessionToken, { ...getSessionCookieOptions(req), maxAge: ONE_YEAR_MS });

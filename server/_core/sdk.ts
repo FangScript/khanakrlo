@@ -136,7 +136,10 @@ class SDKServer {
   }
 
   private getSessionSecret() {
-    const secret = ENV.cookieSecret;
+    const secret = ENV.cookieSecret || (!ENV.isProduction ? "khanakarlo-local-preview-session-secret" : "");
+    if (!secret) {
+      throw new Error("JWT_SECRET is required to sign sessions in production.");
+    }
     return new TextEncoder().encode(secret);
   }
 
