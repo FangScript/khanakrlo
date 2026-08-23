@@ -21,7 +21,7 @@ import { adminAiTriageFeedbackInput, adminAiTriageInput, adminAiTriageReviewInpu
 import * as adminService from "./admin-service";
 import { getAdminWebConfiguration } from "./admin-security";
 import * as adminSecurity from "./admin-security";
-import { adminIpAllowlistCreateInput, adminIpAllowlistStatusInput, adminMfaCodeInput, adminWebSessionRevokeInput } from "./modules/contracts/admin-security";
+import { adminIpAllowlistCreateInput, adminIpAllowlistStatusInput, adminMfaCodeInput, adminSessionAuditFilterInput, adminWebSessionRevokeInput } from "./modules/contracts/admin-security";
 import { TRPCError } from "@trpc/server";
 
 const callAdminSecurity = async <T>(operation: () => Promise<T>) => {
@@ -178,7 +178,7 @@ export const appRouter = router({
     allowlist: adminWebProcedure.query(({ ctx }) => callAdminSecurity(() => adminSecurity.listAdminIpAllowlist(ctx.user.id))),
     createAllowlistRule: adminWebProcedure.input(adminIpAllowlistCreateInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminSecurity.createAdminIpAllowlistRule(ctx.user.id, input))),
     updateAllowlistRule: adminWebProcedure.input(adminIpAllowlistStatusInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminSecurity.updateAdminIpAllowlistRule(ctx.user.id, input))),
-    sessionAudit: adminWebProcedure.query(({ ctx }) => callAdminSecurity(() => adminSecurity.getAdminSessionAudit(ctx.user.id))),
+    sessionAudit: adminWebProcedure.input(adminSessionAuditFilterInput.optional()).query(({ ctx, input }) => callAdminSecurity(() => adminSecurity.getAdminSessionAudit(ctx.user.id, input))),
     revokeSession: adminWebProcedure.input(adminWebSessionRevokeInput).mutation(({ ctx, input }) => callAdminSecurity(() => adminSecurity.revokeAdminWebSession(ctx.user.id, input.sessionId))),
   }),
 

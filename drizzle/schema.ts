@@ -452,6 +452,11 @@ export const adminWebLoginAttempts = mysqlTable("admin_web_login_attempts", {
   id: int("id").autoincrement().primaryKey(), userId: int("userId"), eventType: mysqlEnum("eventType", ["oauth_authenticated", "mfa_enrollment_started", "mfa_enrollment_confirmed", "mfa_succeeded", "mfa_failed", "recovery_code_used", "ip_denied", "host_denied", "session_revoked"]).notNull(), success: boolean("success").notNull(), ipAddress: varchar("ipAddress", { length: 64 }).notNull(), host: varchar("host", { length: 255 }).notNull(), userAgent: varchar("userAgent", { length: 500 }), reason: varchar("reason", { length: 500 }), createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [index("admin_web_login_user_created_index").on(table.userId, table.createdAt), index("admin_web_login_event_created_index").on(table.eventType, table.createdAt)]);
 
+/** Delivery state prevents repeated security failures from flooding the designated alert channel. */
+export const adminWebSecurityAlerts = mysqlTable("admin_web_security_alerts", {
+  id: int("id").autoincrement().primaryKey(), alertType: mysqlEnum("alertType", ["repeated_mfa_failures", "repeated_ip_denials"]).notNull(), scopeKey: varchar("scopeKey", { length: 160 }).notNull(), lastEventCount: int("lastEventCount").notNull(), lastDeliveredAt: timestamp("lastDeliveredAt").notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [uniqueIndex("admin_web_security_alert_scope_unique").on(table.alertType, table.scopeKey), index("admin_web_security_alert_delivered_index").on(table.lastDeliveredAt)]);
+
 /** A non-empty active ruleset enables default-deny IPv4 CIDR allowlisting for the web-only Admin console. */
 export const adminIpAllowlist = mysqlTable("admin_ip_allowlist", {
   id: int("id").autoincrement().primaryKey(), cidr: varchar("cidr", { length: 64 }).notNull(), label: varchar("label", { length: 120 }).notNull(), status: mysqlEnum("status", ["active", "disabled"]).default("active").notNull(), createdByUserId: int("createdByUserId").notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

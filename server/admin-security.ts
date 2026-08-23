@@ -1,15 +1,19 @@
 import crypto from "node:crypto";
 import type { Request, Response } from "express";
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import { parse as parseCookie } from "cookie";
 
-import { adminIpAllowlist, adminMfaEnrollments, adminMfaRecoveryCodes, adminStaffRoles, adminWebLoginAttempts, adminWebSessions, users } from "../drizzle/schema";
+import { adminIpAllowlist, adminMfaEnrollments, adminMfaRecoveryCodes, adminStaffRoles, adminWebLoginAttempts, adminWebSecurityAlerts, adminWebSessions, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { ENV } from "./_core/env";
+import { notifyOwner } from "./_core/notification";
 
 export const ADMIN_MFA_COOKIE = "kk_admin_mfa";
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const ALERT_WINDOW_MS = 15 * 60 * 1000;
+const ALERT_COOLDOWN_MS = 30 * 60 * 1000;
+const ALERT_THRESHOLD = 3;
 
 export class AdminWebSecurityError extends Error {}
 type LoginEvent = typeof adminWebLoginAttempts.$inferInsert["eventType"];
@@ -98,6 +102,33 @@ async function ensureAdminUser(userId: number) { const db = await requireDb(); c
 async function recordAttempt(userId: number | null, req: Request, eventType: LoginEvent, success: boolean, reason?: string) {
   const db = await requireDb(); const meta = requestMeta(req);
   await db.insert(adminWebLoginAttempts).values({ userId, eventType, success, ipAddress: meta.ipAddress, host: meta.host, userAgent: meta.userAgent || null, reason: reason ?? null });
+  if (!success && (eventType === "mfa_failed" || eventType === "ip_denied")) await alertOnRepeatedSecurityFailure(db, { userId, eventType, ipAddress: meta.ipAddress, host: meta.host });
+}
+
+async function deliverSecurityAlert(subject: string, body: string) {
+  if (ENV.resendApiKey && ENV.securityAlertFrom && ENV.securityAlertTo) {
+    try {
+      const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${ENV.resendApiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: ENV.securityAlertFrom, to: [ENV.securityAlertTo], subject, text: body }) });
+      if (response.ok) return true;
+    } catch (error) { console.warn("[AdminSecurity] Email delivery failed", error); }
+  }
+  return notifyOwner({ title: subject, content: body }).catch(() => false);
+}
+
+async function alertOnRepeatedSecurityFailure(db: any, input: { userId: number | null; eventType: "mfa_failed" | "ip_denied"; ipAddress: string; host: string }) {
+  const now = new Date(); const since = new Date(now.getTime() - ALERT_WINDOW_MS);
+  const alertType = input.eventType === "mfa_failed" ? "repeated_mfa_failures" as const : "repeated_ip_denials" as const;
+  const scopeKey = input.eventType === "mfa_failed" ? `user:${input.userId ?? "unknown"}:ip:${input.ipAddress}` : `ip:${input.ipAddress}`;
+  const attempts = await db.select().from(adminWebLoginAttempts).where(and(eq(adminWebLoginAttempts.eventType, input.eventType), eq(adminWebLoginAttempts.success, false), gte(adminWebLoginAttempts.createdAt, since)));
+  const repeatedCount = attempts.filter((attempt: typeof adminWebLoginAttempts.$inferSelect) => input.eventType === "mfa_failed" ? attempt.userId === input.userId && attempt.ipAddress === input.ipAddress : attempt.ipAddress === input.ipAddress).length;
+  if (repeatedCount < ALERT_THRESHOLD) return;
+  const existing = (await db.select().from(adminWebSecurityAlerts).where(and(eq(adminWebSecurityAlerts.alertType, alertType), eq(adminWebSecurityAlerts.scopeKey, scopeKey))).limit(1))[0];
+  if (existing && existing.lastDeliveredAt.getTime() > now.getTime() - ALERT_COOLDOWN_MS) return;
+  const subject = input.eventType === "mfa_failed" ? "Khana KarLo Admin: repeated MFA failures" : "Khana KarLo Admin: repeated IP denials";
+  const delivered = await deliverSecurityAlert(subject, `${repeatedCount} ${input.eventType.replace(/_/g, " ")} events were recorded within 15 minutes. Host: ${input.host}. Address: ${maskIp(input.ipAddress)}. Review the Admin security audit dashboard.`);
+  if (!delivered) return;
+  if (existing) await db.update(adminWebSecurityAlerts).set({ lastEventCount: repeatedCount, lastDeliveredAt: now }).where(eq(adminWebSecurityAlerts.id, existing.id));
+  else await db.insert(adminWebSecurityAlerts).values({ alertType, scopeKey, lastEventCount: repeatedCount, lastDeliveredAt: now });
 }
 
 function isProductionCanonicalHostRequired() { return ENV.isProduction && Boolean(ENV.adminWebHost); }
@@ -163,5 +194,5 @@ export async function enforceAdminWebAccess(userId: number, req: Request) {
 export async function listAdminIpAllowlist(userId: number) { const { db, staffRole } = await ensureAdminUser(userId); if (staffRole !== "senior_operations") throw new AdminWebSecurityError("Only senior operators can manage network allowlisting."); return db.select().from(adminIpAllowlist).orderBy(desc(adminIpAllowlist.createdAt)); }
 export async function createAdminIpAllowlistRule(userId: number, input: { cidr: string; label: string }) { const { db, staffRole } = await ensureAdminUser(userId); if (staffRole !== "senior_operations") throw new AdminWebSecurityError("Only senior operators can manage network allowlisting."); const result = await db.insert(adminIpAllowlist).values({ cidr: input.cidr, label: input.label, status: "active", createdByUserId: userId }); return { id: Number(result[0].insertId) }; }
 export async function updateAdminIpAllowlistRule(userId: number, input: { ruleId: number; status: "active" | "disabled" }) { const { db, staffRole } = await ensureAdminUser(userId); if (staffRole !== "senior_operations") throw new AdminWebSecurityError("Only senior operators can manage network allowlisting."); await db.update(adminIpAllowlist).set({ status: input.status }).where(eq(adminIpAllowlist.id, input.ruleId)); return { id: input.ruleId, status: input.status }; }
-export async function getAdminSessionAudit(userId: number) { const { db, staffRole } = await ensureAdminUser(userId); if (staffRole !== "senior_operations") throw new AdminWebSecurityError("Only senior operators can view session audit reports."); const [sessions, attempts] = await Promise.all([db.select().from(adminWebSessions).orderBy(desc(adminWebSessions.createdAt)).limit(100), db.select().from(adminWebLoginAttempts).orderBy(desc(adminWebLoginAttempts.createdAt)).limit(200)]); return { sessions: sessions.map((session) => ({ ...session, ipAddress: maskIp(session.ipAddress), tokenHash: undefined })), loginAttempts: attempts.map((attempt) => ({ ...attempt, ipAddress: maskIp(attempt.ipAddress), userAgent: attempt.userAgent ? attempt.userAgent.slice(0, 160) : null })), summary: { activeSessions: sessions.filter((session) => !session.revokedAt && session.expiresAt > new Date()).length, failedMfaAttempts: attempts.filter((attempt) => !attempt.success && attempt.eventType === "mfa_failed").length, deniedNetworks: attempts.filter((attempt) => attempt.eventType === "ip_denied").length } }; }
+export async function getAdminSessionAudit(userId: number, filters: { from?: string; to?: string; userId?: number; eventType?: LoginEvent } = {}) { const { db, staffRole } = await ensureAdminUser(userId); if (staffRole !== "senior_operations") throw new AdminWebSecurityError("Only senior operators can view session audit reports."); const sessionConditions = []; const attemptConditions = []; if (filters.from) { sessionConditions.push(gte(adminWebSessions.createdAt, new Date(filters.from))); attemptConditions.push(gte(adminWebLoginAttempts.createdAt, new Date(filters.from))); } if (filters.to) { sessionConditions.push(lte(adminWebSessions.createdAt, new Date(filters.to))); attemptConditions.push(lte(adminWebLoginAttempts.createdAt, new Date(filters.to))); } if (filters.userId) { sessionConditions.push(eq(adminWebSessions.userId, filters.userId)); attemptConditions.push(eq(adminWebLoginAttempts.userId, filters.userId)); } if (filters.eventType) attemptConditions.push(eq(adminWebLoginAttempts.eventType, filters.eventType)); const [sessions, attempts] = await Promise.all([db.select().from(adminWebSessions).where(sessionConditions.length ? and(...sessionConditions) : undefined).orderBy(desc(adminWebSessions.createdAt)).limit(100), db.select().from(adminWebLoginAttempts).where(attemptConditions.length ? and(...attemptConditions) : undefined).orderBy(desc(adminWebLoginAttempts.createdAt)).limit(200)]); const userIds = Array.from(new Set([...sessions.map((session) => session.userId), ...attempts.map((attempt) => attempt.userId).filter((id): id is number => typeof id === "number")])); const auditUsers = userIds.length ? await Promise.all(userIds.map(async (id) => (await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, id)).limit(1))[0])) : []; return { filters, users: auditUsers.filter(Boolean).map((user) => ({ id: user!.id, label: user!.name || user!.email || `Admin #${user!.id}` })), sessions: sessions.map((session) => ({ ...session, ipAddress: maskIp(session.ipAddress), tokenHash: undefined })), loginAttempts: attempts.map((attempt) => ({ ...attempt, ipAddress: maskIp(attempt.ipAddress), userAgent: attempt.userAgent ? attempt.userAgent.slice(0, 160) : null })), summary: { activeSessions: sessions.filter((session) => !session.revokedAt && session.expiresAt > new Date()).length, failedMfaAttempts: attempts.filter((attempt) => !attempt.success && attempt.eventType === "mfa_failed").length, deniedNetworks: attempts.filter((attempt) => attempt.eventType === "ip_denied").length } }; }
 export async function revokeAdminWebSession(userId: number, sessionId: number) { const { db, staffRole } = await ensureAdminUser(userId); if (staffRole !== "senior_operations") throw new AdminWebSecurityError("Only senior operators can revoke Admin sessions."); await db.update(adminWebSessions).set({ revokedAt: new Date(), revokedByUserId: userId }).where(eq(adminWebSessions.id, sessionId)); return { id: sessionId }; }

@@ -188,3 +188,7 @@
 - [x] Add Admin subdomain configuration readiness with environment-driven canonical-host enforcement and publishing guidance.
 - [x] Add a web session-audit dashboard for staff sessions, login attempts, MFA outcomes, IP decisions, and activity summaries.
 - [x] Add deterministic validation for MFA gating, IP controls, session audit privacy, and canonical Admin web access.
+- [x] Add threshold-based owner email alerts for repeated MFA failures and IP-denial events with cooldown protection.
+- [x] Add server-authoritative session-audit filters for date range, Admin user, and security event type.
+- [x] Add date, staff-user, and event-type filters to the Admin session-audit dashboard.
+- [x] Add deterministic validation for alert threshold/cooldown behavior and scoped session-audit filtering.
