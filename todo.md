@@ -220,3 +220,4 @@
 - [x] Add deterministic coverage for tracking ownership, lifecycle closure, privacy, location validation, route fallback, and live-event degradation.
 - [x] Perform a deep production audit of mobile, server, database, security, operational workflows, and managed runtime reliability; document and prioritize confirmed findings.
 - [x] Investigate Expo and managed-preview logs for the phone-reported sandbox-disabled state; document the confirmed cause and recovery action.
+- [x] Verify managed-sandbox preview availability against the active Expo runtime and provide the correct sandbox access path.
