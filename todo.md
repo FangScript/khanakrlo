@@ -221,3 +221,14 @@
 - [x] Perform a deep production audit of mobile, server, database, security, operational workflows, and managed runtime reliability; document and prioritize confirmed findings.
 - [x] Investigate Expo and managed-preview logs for the phone-reported sandbox-disabled state; document the confirmed cause and recovery action.
 - [x] Verify managed-sandbox preview availability against the active Expo runtime and provide the correct sandbox access path.
+- [x] Safely update the local branch from GitHub `main` without overwriting locally ahead commits; GitHub main was already merged and local main remained ahead before environment recovery.
+- [x] Validate the newly selected Supabase project’s public client configuration through its Auth settings endpoint.
+- [ ] Configure the recovered app with the selected Supabase client, Google-only sign-in, secure session persistence, and native redirect callback handling.
+- [ ] Map verified Supabase identities into the existing MySQL/TiDB user records while preserving authoritative order, COD, finance, and web-only Admin services.
+- [ ] Replace every active preview phone-OTP authentication path with optional, consented post-login contact capture that does not claim phone verification.
+- [ ] Remove preview workspace fallback behavior that can recreate legacy phone sessions.
+- [ ] Add protected, order-scoped Customer–Rider–Business communication without exposing personal phone numbers publicly.
+- [ ] Rebuild the staged PKR founder launch budget after the final Supabase, maps, and communication architecture is validated.
+
+- [ ] Commit and push the current validated Supabase Google-only authentication milestone to GitHub without including secrets.
+- [ ] Continue protected order communication and the staged PKR founder launch budget after the authentication milestone.

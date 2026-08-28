@@ -25,6 +25,7 @@ export default function DeliveryLocationScreen() {
       name: user?.name ?? params.name ?? "Customer",
       phone: params.phone ?? "",
       deliveryAddress: formatDeliveryAddress(address),
+      authUserId: user?.openId,
     });
     router.replace((returnTo ?? "/(tabs)") as never);
   };
@@ -49,7 +50,7 @@ export default function DeliveryLocationScreen() {
   };
 
   return (
-    <OnboardingFrame step={4} title="Where should we deliver?" subtitle="Turn on location to see nearby restaurants and accurate delivery fees." onBack={() => router.back()}>
+    <OnboardingFrame step={3} title="Where should we deliver?" subtitle="Turn on location to see nearby restaurants and accurate delivery fees." onBack={() => router.back()}>
       <PrimaryButton label={locationState === "loading" ? "Finding your location…" : "Use my current location"} disabled={locationState === "loading"} onPress={useCurrentLocation} icon="my-location" />
       {locationState === "denied" ? <View style={[onboardingStyles.callout, { backgroundColor: "#FCE8E6" }]}><MaterialIcons name="location-off" size={21} color="#B04336" /><Text style={[onboardingStyles.calloutText, { color: "#8A352C" }]}>Location access was not enabled. Enter your delivery area manually below.</Text></View> : null}
       {locationState === "ready" ? <View style={[onboardingStyles.callout, { backgroundColor: "#E0F4E7" }]}><MaterialIcons name="my-location" size={21} color="#17683A" /><Text style={[onboardingStyles.calloutText, { color: "#17683A" }]}>Location added. You can adjust the delivery area before saving.</Text></View> : null}

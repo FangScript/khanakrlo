@@ -1,5 +1,5 @@
-export function getPostGoogleRegistrationDestination(): "/auth/phone" {
-  return "/auth/phone";
+export function getPostGoogleRegistrationDestination(returnTo?: AuthReturnDestination): "/auth/contact" | `/auth/contact?returnTo=${string}` {
+  return returnTo ? `/auth/contact?returnTo=${encodeURIComponent(returnTo)}` : "/auth/contact";
 }
 
 export type AuthReturnDestination = "/business/onboarding" | null;
@@ -9,12 +9,7 @@ export function parseAuthReturnDestination(value?: string | string[]): AuthRetur
   return candidate === "/business/onboarding" ? candidate : null;
 }
 
-export function getPhoneVerificationDestination(phone: string, returnTo?: AuthReturnDestination): `/auth/verify?phone=${string}${string}` {
-  const suffix = returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : "";
-  return `/auth/verify?phone=${encodeURIComponent(phone)}${suffix}`;
-}
-
-export function getPostOtpRegistrationDestination(phone: string, returnTo?: AuthReturnDestination): `/auth/location?phone=${string}${string}` {
+export function getPostContactRegistrationDestination(phone: string, returnTo?: AuthReturnDestination): `/auth/location?phone=${string}${string}` {
   const suffix = returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : "";
   return `/auth/location?phone=${encodeURIComponent(phone)}${suffix}`;
 }

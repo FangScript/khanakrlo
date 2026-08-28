@@ -27,6 +27,8 @@ import { adminIpAllowlistCreateInput, adminIpAllowlistStatusInput, adminMfaCodeI
 import { adminCredentialProvisionInput, adminCredentialSignInInput } from "./modules/contracts/admin-credentials";
 import * as adminCredentials from "./admin-credentials";
 import { TRPCError } from "@trpc/server";
+import { z } from "zod";
+import { updateAccountProfile } from "./db";
 
 const callAdminSecurity = async <T>(operation: () => Promise<T>) => {
   try { return await operation(); } catch (error) { throw new TRPCError({ code: "FORBIDDEN", message: error instanceof Error ? error.message : "Admin security validation failed." }); }
@@ -43,6 +45,16 @@ export const appRouter = router({
       return {
         success: true,
       } as const;
+    }),
+  }),
+
+  account: router({
+    saveContact: protectedProcedure.input(z.object({
+      phoneE164: z.string().regex(/^\+923\d{9}$/, "Enter a valid Pakistan mobile number."),
+      contactConsent: z.literal(true),
+    })).mutation(async ({ ctx, input }) => {
+      await updateAccountProfile(ctx.user.id, { phoneE164: input.phoneE164, phoneVerified: false, contactConsent: input.contactConsent });
+      return { success: true, phoneVerified: false } as const;
     }),
   }),
 

@@ -5,20 +5,23 @@ import { Image, StyleSheet, Text, View } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { getCustomerLaunchDestination } from "@/lib/launch-routing";
 import { useKhanaStore } from "@/lib/khana-store";
+import { useAuth } from "@/hooks/use-auth";
 
 const SPLASH_DURATION_MS = 1450;
 
 export default function LaunchSplashScreen() {
   const { customer, hasHydratedCustomer, hydrateCustomerSession } = useKhanaStore();
+  const { user, loading } = useAuth();
   useEffect(() => {
-    void hydrateCustomerSession();
-  }, [hydrateCustomerSession]);
+    if (!loading) void hydrateCustomerSession(user?.openId);
+  }, [hydrateCustomerSession, loading, user?.openId]);
 
   useEffect(() => {
-    if (!hasHydratedCustomer) return;
-    const timeout = setTimeout(() => router.replace(getCustomerLaunchDestination(Boolean(customer)) as never), SPLASH_DURATION_MS);
+    if (loading || !hasHydratedCustomer) return;
+    const destination = !user ? "/auth/login" : !customer ? "/auth/contact" : getCustomerLaunchDestination(true);
+    const timeout = setTimeout(() => router.replace(destination as never), SPLASH_DURATION_MS);
     return () => clearTimeout(timeout);
-  }, [customer, hasHydratedCustomer]);
+  }, [customer, hasHydratedCustomer, loading, user]);
 
   return (
     <ScreenContainer edges={["top", "bottom", "left", "right"]}>

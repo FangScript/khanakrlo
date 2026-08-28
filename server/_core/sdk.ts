@@ -143,6 +143,35 @@ class SDKServer {
     return new TextEncoder().encode(secret);
   }
 
+  private getSupabaseConfiguration() {
+    const projectUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
+    const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+    if (!projectUrl || !publishableKey) return null;
+    return { projectUrl, publishableKey };
+  }
+
+  /** Validates issued Supabase access tokens without trusting decoded client claims. */
+  private async getSupabaseIdentity(accessToken: string) {
+    const config = this.getSupabaseConfiguration();
+    if (!config) return null;
+    try {
+      const response = await fetch(`${config.projectUrl}/auth/v1/user`, {
+        headers: { Authorization: `Bearer ${accessToken}`, apikey: config.publishableKey },
+      });
+      if (!response.ok) return null;
+      const user = await response.json() as { id?: unknown; email?: unknown; user_metadata?: { full_name?: unknown; name?: unknown } };
+      if (!isNonEmptyString(user.id)) return null;
+      const candidateName = user.user_metadata?.full_name ?? user.user_metadata?.name;
+      return {
+        openId: `supabase:${user.id}`,
+        email: isNonEmptyString(user.email) ? user.email : null,
+        name: isNonEmptyString(candidateName) ? candidateName : null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Create a session token for a Manus user openId
    * @example
@@ -242,11 +271,29 @@ class SDKServer {
       token = authHeader.slice("Bearer ".length).trim();
     }
 
+    if (token) {
+      const supabaseIdentity = await this.getSupabaseIdentity(token);
+      if (supabaseIdentity) {
+        const signedInAt = new Date();
+        let user = await db.getUserByOpenId(supabaseIdentity.openId);
+        await db.upsertUser({
+          openId: supabaseIdentity.openId,
+          name: supabaseIdentity.name ?? user?.name ?? null,
+          email: supabaseIdentity.email ?? user?.email ?? null,
+          loginMethod: "supabase_google",
+          lastSignedIn: signedInAt,
+        });
+        user = await db.getUserByOpenId(supabaseIdentity.openId);
+        if (!user) throw ForbiddenError("Supabase identity could not be linked to a Khana KarLo user.");
+        return user;
+      }
+    }
+
     const cookies = this.parseCookies(req.headers.cookie);
     const sessionCookie = token || cookies.get(COOKIE_NAME);
     const session = await this.verifySession(sessionCookie);
 
-    if (!session) {
+    if (!session || session.openId.startsWith("preview_phone_pk_")) {
       throw ForbiddenError("Invalid session cookie");
     }
 

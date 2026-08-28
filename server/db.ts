@@ -193,8 +193,9 @@ export async function reviewWorkspaceApplication(reviewerUserId: number, applica
   });
 }
 
-export async function updateAccountProfile(userId: number, input: { givenName?: string; phoneE164?: string; phoneVerified?: boolean; defaultCity?: string }) {
+export async function updateAccountProfile(userId: number, input: { givenName?: string; phoneE164?: string; phoneVerified?: boolean; contactConsent?: boolean; defaultCity?: string }) {
   const db = await getRequiredDb();
+  if (input.phoneE164 && !input.contactConsent) throw new Error("Consent is required before saving a mobile number for active-order contact.");
   const profileValues = {
     givenName: input.givenName?.trim() || null,
     phoneE164: input.phoneE164 ?? null,
@@ -202,4 +203,5 @@ export async function updateAccountProfile(userId: number, input: { givenName?: 
     defaultCity: input.defaultCity?.trim() || null,
   } as const;
   await db.insert(accountProfiles).values({ userId, ...profileValues }).onDuplicateKeyUpdate({ set: { ...profileValues, updatedAt: new Date() } });
+  await db.insert(auditEvents).values({ actorUserId: userId, entityType: "account_profile", entityId: String(userId), action: "contact_profile_saved", nextValue: JSON.stringify({ hasPhone: Boolean(input.phoneE164), phoneVerified: false, contactConsent: Boolean(input.phoneE164 && input.contactConsent) }) });
 }

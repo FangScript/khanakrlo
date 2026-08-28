@@ -17,6 +17,7 @@ export type CustomerProfile = {
   name: string;
   phone: string;
   deliveryAddress: string;
+  authUserId?: string;
 };
 
 type KhanaState = {
@@ -132,14 +133,15 @@ function placeOrder(restaurantName: string, total: number) {
   return nextOrder;
 }
 
-async function hydrateCustomerSession() {
+async function hydrateCustomerSession(authUserId?: string) {
   if (state.hasHydratedCustomer) return;
   if (hydrationPromise) return hydrationPromise;
 
   hydrationPromise = (async () => {
     try {
       const persistedProfile = await AsyncStorage.getItem(CUSTOMER_STORAGE_KEY);
-      const customer = persistedProfile ? (JSON.parse(persistedProfile) as CustomerProfile) : null;
+      const persistedCustomer = persistedProfile ? (JSON.parse(persistedProfile) as CustomerProfile) : null;
+      const customer = persistedCustomer && (!authUserId || persistedCustomer.authUserId === authUserId) ? persistedCustomer : null;
       setState({ ...state, customer, hasHydratedCustomer: true });
     } catch {
       setState({ ...state, hasHydratedCustomer: true });
