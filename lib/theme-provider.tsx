@@ -10,6 +10,7 @@ type ThemeContextValue = {
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
+const APP_TRANSITION_BACKGROUND = "#064B2C";
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useSystemColorScheme() ?? "light";
@@ -20,6 +21,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     Appearance.setColorScheme?.(scheme);
     if (typeof document !== "undefined") {
       const root = document.documentElement;
+      const body = document.body;
+      root.style.backgroundColor = APP_TRANSITION_BACKGROUND;
+      body.style.backgroundColor = APP_TRANSITION_BACKGROUND;
       root.dataset.theme = scheme;
       root.classList.toggle("dark", scheme === "dark");
       const palette = SchemeColors[scheme];
@@ -65,7 +69,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ThemeContext.Provider value={value}>
-      <View style={[{ flex: 1 }, themeVariables]}>{children}</View>
+      <View style={[{ flex: 1, backgroundColor: APP_TRANSITION_BACKGROUND }, themeVariables]}>{children}</View>
     </ThemeContext.Provider>
   );
 }
