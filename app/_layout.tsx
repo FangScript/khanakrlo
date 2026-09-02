@@ -2,7 +2,6 @@ import "@/global.css";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import Constants from "expo-constants";
 import * as Network from "expo-network";
-import * as Notifications from "expo-notifications";
 import { router, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -27,7 +26,11 @@ import { flushRiderCommandQueue } from "@/lib/rider-command-queue";
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
 
-if (Platform.OS !== "web") {
+const isExpoGo = Constants.executionEnvironment === "storeClient";
+
+let Notifications: typeof import("expo-notifications") | null = null;
+if (!isExpoGo && Platform.OS !== "web") {
+  Notifications = require("expo-notifications");
   Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) });
 }
 
@@ -59,7 +62,7 @@ function RiderCommandSynchronizer() {
 function NotificationRuntime() {
   const registerDevice = trpc.notifications.registerExpoDevice.useMutation();
   useEffect(() => {
-    if (Platform.OS === "web") return;
+    if (Platform.OS === "web" || isExpoGo) return;
     let disposed = false;
     const redirect = (notification: Notifications.Notification) => {
       const candidate = notification.request.content.data?.url;
@@ -67,20 +70,20 @@ function NotificationRuntime() {
     };
     const setup = async () => {
       try {
-        if (Platform.OS === "android") await Notifications.setNotificationChannelAsync("orders", { name: "Order updates", importance: Notifications.AndroidImportance.HIGH });
-        const existing = await Notifications.getPermissionsAsync();
-        const permission = existing.status === "granted" ? existing : await Notifications.requestPermissionsAsync();
+        if (Platform.OS === "android") await Notifications!.setNotificationChannelAsync("orders", { name: "Order updates", importance: Notifications!.AndroidImportance.HIGH });
+        const existing = await Notifications!.getPermissionsAsync();
+        const permission = existing.status === "granted" ? existing : await Notifications!.requestPermissionsAsync();
         if (permission.status !== "granted") return;
         const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
         if (!projectId) return;
-        const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+        const token = (await Notifications!.getExpoPushTokenAsync({ projectId })).data;
         if (!disposed) await registerDevice.mutateAsync({ token, platform: Platform.OS === "ios" ? "ios" : "android" });
       } catch { /* Durable in-app inbox remains available if push registration is unavailable. */ }
     };
     void setup();
-    const last = Notifications.getLastNotificationResponse();
+    const last = Notifications!.getLastNotificationResponse();
     if (last?.notification) redirect(last.notification);
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => redirect(response.notification));
+    const subscription = Notifications!.addNotificationResponseReceivedListener((response) => redirect(response.notification));
     return () => { disposed = true; subscription.remove(); };
   }, [registerDevice]);
   return null;

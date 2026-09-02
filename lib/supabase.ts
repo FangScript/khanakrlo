@@ -6,10 +6,6 @@ import { Platform } from "react-native";
 const projectUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
 const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!projectUrl || !publishableKey) {
-  throw new Error("Supabase client configuration is missing. Set the public project URL and publishable key before starting the app.");
-}
-
 const secureStoreAdapter: SupportedStorage = {
   getItem: (key) => SecureStore.getItemAsync(key),
   setItem: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
@@ -25,12 +21,19 @@ const memoryStorage: SupportedStorage = {
 const canUseBrowserStorage = Platform.OS !== "web" || typeof window !== "undefined";
 const authStorage = !canUseBrowserStorage ? memoryStorage : Platform.OS === "web" ? AsyncStorage : secureStoreAdapter;
 
-export const supabase = createClient(projectUrl, publishableKey, {
-  auth: {
-    storage: authStorage,
-    autoRefreshToken: canUseBrowserStorage,
-    persistSession: canUseBrowserStorage,
-    detectSessionInUrl: false,
-    flowType: "pkce",
-  },
-});
+let supabase = null;
+if (projectUrl && publishableKey) {
+  supabase = createClient(projectUrl, publishableKey, {
+    auth: {
+      storage: authStorage,
+      autoRefreshToken: canUseBrowserStorage,
+      persistSession: canUseBrowserStorage,
+      detectSessionInUrl: false,
+      flowType: "pkce",
+    },
+  });
+} else {
+  console.warn("Supabase client configuration is missing. Running in demo mode without backend.");
+}
+
+export { supabase };
