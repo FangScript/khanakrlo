@@ -30,11 +30,8 @@ const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserI
 
 class OAuthService {
   constructor(private client: ReturnType<typeof axios.create>) {
-    console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
-    if (!ENV.oAuthServerUrl) {
-      console.error(
-        "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.",
-      );
+    if (ENV.oAuthServerUrl) {
+      console.log("[OAuth] Legacy Manus OAuth initialized with baseURL:", ENV.oAuthServerUrl);
     }
   }
 
@@ -275,16 +272,39 @@ class SDKServer {
       const supabaseIdentity = await this.getSupabaseIdentity(token);
       if (supabaseIdentity) {
         const signedInAt = new Date();
-        let user = await db.getUserByOpenId(supabaseIdentity.openId);
-        await db.upsertUser({
-          openId: supabaseIdentity.openId,
-          name: supabaseIdentity.name ?? user?.name ?? null,
-          email: supabaseIdentity.email ?? user?.email ?? null,
-          loginMethod: "supabase_google",
-          lastSignedIn: signedInAt,
-        });
-        user = await db.getUserByOpenId(supabaseIdentity.openId);
-        if (!user) throw ForbiddenError("Supabase identity could not be linked to a Khana KarLo user.");
+        let user: User | undefined;
+        try {
+          user = await db.getUserByOpenId(supabaseIdentity.openId);
+          await db.upsertUser({
+            openId: supabaseIdentity.openId,
+            name: supabaseIdentity.name ?? user?.name ?? null,
+            email: supabaseIdentity.email ?? user?.email ?? null,
+            loginMethod: "supabase_google",
+            lastSignedIn: signedInAt,
+          });
+          user = await db.getUserByOpenId(supabaseIdentity.openId);
+        } catch (dbError) {
+          console.warn("[Auth] Could not persist Supabase user to database:", dbError);
+        }
+
+        if (!user) {
+          let hash = 0;
+          for (const char of supabaseIdentity.openId) {
+            hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+          }
+          const fallbackId = Math.max(1, hash % 2_000_000_000);
+          user = {
+            id: fallbackId,
+            openId: supabaseIdentity.openId,
+            name: supabaseIdentity.name,
+            email: supabaseIdentity.email,
+            loginMethod: "supabase_google",
+            role: "user",
+            createdAt: signedInAt,
+            updatedAt: signedInAt,
+            lastSignedIn: signedInAt,
+          };
+        }
         return user;
       }
     }

@@ -22,7 +22,7 @@ export async function enqueueOutboxEvent(event: DomainEventEnvelope): Promise<vo
     aggregateId: event.aggregateId,
     payload: JSON.stringify(event.payload),
     deduplicationKey: event.deduplicationKey,
-  }).onDuplicateKeyUpdate({ set: { processedAt: null, attempts: 0, lastError: null } });
+  }).onConflictDoUpdate({ target: domainOutboxEvents.deduplicationKey, set: { processedAt: null, attempts: 0, lastError: null } });
 }
 
 export async function listPendingOutboxEvents(limit = OUTBOX_BATCH_LIMIT) {

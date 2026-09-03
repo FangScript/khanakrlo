@@ -1,5 +1,6 @@
 import * as Linking from "expo-linking";
 import * as ReactNative from "react-native";
+import Constants from "expo-constants";
 
 const deepLinkScheme = "khanakarlo";
 
@@ -23,25 +24,42 @@ export const API_BASE_URL = env.apiBaseUrl;
 /**
  * Get the API base URL, deriving from current hostname if not set.
  * Metro runs on 8081, API server runs on 3000.
- * URL pattern: https://PORT-sandboxid.region.domain
  */
 export function getApiBaseUrl(): string {
-  // If API_BASE_URL is set, use it
-  if (API_BASE_URL) {
-    return API_BASE_URL.replace(/\/$/, "");
-  }
-
-  // On web, derive from current hostname by replacing port 8081 with 3000
+  // On web, derive API port from the active window location to prevent localhost/LAN IP mismatch
   if (ReactNative.Platform.OS === "web" && typeof window !== "undefined" && window.location) {
-    const { protocol, hostname } = window.location;
-    // Pattern: 8081-sandboxid.region.domain -> 3000-sandboxid.region.domain
+    const { protocol, hostname, port } = window.location;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return `${protocol}//${hostname}:3000`;
+    }
     const apiHostname = hostname.replace(/^8081-/, "3000-");
     if (apiHostname !== hostname) {
       return `${protocol}//${apiHostname}`;
     }
+    if (port === "8081") {
+      return `${protocol}//${hostname}:3000`;
+    }
   }
 
-  // Fallback to empty (will use relative URL)
+  // If API_BASE_URL is set, use it
+  if (API_BASE_URL) {
+    const clean = API_BASE_URL.replace(/\/$/, "");
+    // On physical mobile device, localhost/127.0.0.1 does not work; replace with dev host IP
+    if (ReactNative.Platform.OS !== "web" && (clean.includes("localhost") || clean.includes("127.0.0.1"))) {
+      const devHost = Constants.expoConfig?.hostUri?.split(":")[0];
+      if (devHost) {
+        return clean.replace(/localhost|127\.0\.0\.1/, devHost);
+      }
+    }
+    return clean;
+  }
+
+  // Fallback for native devices in Expo Go: derive IP from Metro hostUri
+  const devHost = Constants.expoConfig?.hostUri?.split(":")[0];
+  if (devHost) {
+    return `http://${devHost}:3000`;
+  }
+
   return "";
 }
 

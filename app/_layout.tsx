@@ -31,7 +31,7 @@ const isExpoGo = Constants.executionEnvironment === "storeClient";
 let Notifications: typeof import("expo-notifications") | null = null;
 if (!isExpoGo && Platform.OS !== "web") {
   Notifications = require("expo-notifications");
-  Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) });
+  Notifications?.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) });
 }
 
 export const unstable_settings = {
@@ -62,17 +62,17 @@ function RiderCommandSynchronizer() {
 function NotificationRuntime() {
   const registerDevice = trpc.notifications.registerExpoDevice.useMutation();
   useEffect(() => {
-    if (Platform.OS === "web" || isExpoGo) return;
+    if (Platform.OS === "web" || isExpoGo || !Notifications) return;
     let disposed = false;
-    const redirect = (notification: Notifications.Notification) => {
-      const candidate = notification.request.content.data?.url;
+    const redirect = (notification: any) => {
+      const candidate = notification.request?.content?.data?.url;
       if (typeof candidate === "string" && candidate.startsWith("/")) router.push(candidate as never);
     };
     const setup = async () => {
       try {
-        if (Platform.OS === "android") await Notifications!.setNotificationChannelAsync("orders", { name: "Order updates", importance: Notifications!.AndroidImportance.HIGH });
-        const existing = await Notifications!.getPermissionsAsync();
-        const permission = existing.status === "granted" ? existing : await Notifications!.requestPermissionsAsync();
+        if (Platform.OS === "android") await Notifications.setNotificationChannelAsync("orders", { name: "Order updates", importance: Notifications.AndroidImportance.HIGH });
+        const existing = await Notifications.getPermissionsAsync();
+        const permission = existing.status === "granted" ? existing : await Notifications.requestPermissionsAsync();
         if (permission.status !== "granted") return;
         const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
         if (!projectId) return;

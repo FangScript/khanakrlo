@@ -119,9 +119,9 @@ export async function saveBusinessDraft(userId: number, draftInput: BusinessAppl
   const detailValues = {
     applicationId: application.id, legalName: draft.legalName, displayName: draft.displayName, supportPhone: draft.supportPhone, city: draft.city, addressLine1: draft.addressLine1, description: draft.description ?? null, pickupInstructions: draft.pickupInstructions ?? null, prepTimeMinutes: draft.prepTimeMinutes, openingTime: draft.openingTime, closingTime: draft.closingTime, cuisine: draft.restaurant?.cuisine ?? null, cloudKitchenPayload: draft.cloudKitchen ? JSON.stringify(draft.cloudKitchen) : null, serviceZonePayload: JSON.stringify(draft.serviceZone), menuPayload: JSON.stringify(draft.menu),
   };
-  await db.insert(businessApplicationDetails).values(detailValues).onDuplicateKeyUpdate({ set: { ...detailValues, updatedAt: now } });
+  await db.insert(businessApplicationDetails).values(detailValues).onConflictDoUpdate({ target: businessApplicationDetails.applicationId, set: { ...detailValues, updatedAt: now } });
   const requirements = requiredChecklistForBusinessType(draft.businessType);
-  for (const requirementKey of requirements) await db.insert(businessReviewChecklists).values({ applicationId: application.id, requirementKey }).onDuplicateKeyUpdate({ set: { updatedAt: now } });
+  for (const requirementKey of requirements) await db.insert(businessReviewChecklists).values({ applicationId: application.id, requirementKey }).onConflictDoUpdate({ target: [businessReviewChecklists.applicationId, businessReviewChecklists.requirementKey], set: { updatedAt: now } });
 
   if (submit) {
     const errors = validateBusinessApplicationDraft(draft);
@@ -146,7 +146,7 @@ export async function uploadBusinessDocument(userId: number, input: { documentTy
   const storage = await storagePut(`business-applications/${userId}/${application.id}/${input.documentType}.${extension}`, binary, input.mimeType);
   const db = await requireDb();
   await db.insert(businessDocuments).values({ applicationId: application.id, uploadedByUserId: userId, documentType: input.documentType, storageKey: storage.key, originalName: input.originalName.slice(0, 255), mimeType: input.mimeType, sizeBytes: binary.length });
-  await db.insert(businessReviewChecklists).values({ applicationId: application.id, requirementKey: input.documentType, status: "complete" }).onDuplicateKeyUpdate({ set: { status: "complete", note: null, updatedAt: new Date() } });
+  await db.insert(businessReviewChecklists).values({ applicationId: application.id, requirementKey: input.documentType, status: "complete" }).onConflictDoUpdate({ target: [businessReviewChecklists.applicationId, businessReviewChecklists.requirementKey], set: { status: "complete", note: null, updatedAt: new Date() } });
   await db.insert(auditEvents).values({ actorUserId: userId, entityType: "business_document", entityId: `${application.id}:${input.documentType}`, action: "business_document_uploaded", nextValue: JSON.stringify({ storageKey: storage.key, mimeType: input.mimeType, sizeBytes: binary.length }) });
   return { storageKey: storage.key };
 }
@@ -190,7 +190,7 @@ export async function reviewBusinessApplication(reviewerUserId: number, applicat
       if (!organisation) throw new Error("Business activation could not create an organisation.");
       const currentPolicy = (await tx.select().from(businessCommissionPolicies).where(and(eq(businessCommissionPolicies.organisationId, organisation.id), isNull(businessCommissionPolicies.effectiveUntil))).limit(1))[0];
       if (!currentPolicy) await tx.insert(businessCommissionPolicies).values({ organisationId: organisation.id, commissionRateBps: 1200, revenueBase: "item_subtotal_after_discount", taxTreatment: "pilot_pending", settlementCadence: "manual_pilot", effectiveFrom: now, approvedByUserId: reviewerUserId });
-      await tx.insert(businessStaffMemberships).values({ organisationId: organisation.id, userId: application.userId, staffRole: "owner" }).onDuplicateKeyUpdate({ set: { isActive: true, updatedAt: now } });
+      await tx.insert(businessStaffMemberships).values({ organisationId: organisation.id, userId: application.userId, staffRole: "owner" }).onConflictDoUpdate({ target: [businessStaffMemberships.organisationId, businessStaffMemberships.userId], set: { isActive: true, updatedAt: now } });
       const zone = parseJson(detail.serviceZonePayload, { name: `${detail.city} core`, deliveryFeeMinor: 0, minimumOrderMinor: 0 });
       const menu = parseJson<Array<{ category: string; items: Array<{ name: string; description?: string; priceMinor: number; prepTimeMinutes: number }> }>>(detail.menuPayload, []);
       if (businessType === "restaurant") {
@@ -198,7 +198,7 @@ export async function reviewBusinessApplication(reviewerUserId: number, applicat
         const outlet = (await tx.select().from(businessOutlets).where(eq(businessOutlets.organisationId, organisation.id)).limit(1))[0];
         if (!outlet) throw new Error("Restaurant outlet activation failed.");
         await tx.insert(serviceZones).values({ organisationId: organisation.id, outletId: outlet.id, name: zone.name, city: detail.city!, deliveryFeeMinor: zone.deliveryFeeMinor, minimumOrderMinor: zone.minimumOrderMinor });
-        for (let weekday = 0; weekday < 7; weekday++) await tx.insert(businessHours).values({ scopeType: "outlet", scopeId: outlet.id, weekday, opensAt: detail.openingTime, closesAt: detail.closingTime }).onDuplicateKeyUpdate({ set: { opensAt: detail.openingTime, closesAt: detail.closingTime, isClosed: false, updatedAt: now } });
+        for (let weekday = 0; weekday < 7; weekday++) await tx.insert(businessHours).values({ scopeType: "outlet", scopeId: outlet.id, weekday, opensAt: detail.openingTime, closesAt: detail.closingTime }).onConflictDoUpdate({ target: [businessHours.scopeType, businessHours.scopeId, businessHours.weekday], set: { opensAt: detail.openingTime, closesAt: detail.closingTime, isClosed: false, updatedAt: now } });
         for (const [order, category] of menu.entries()) { await tx.insert(menuCategories).values({ outletId: outlet.id, name: category.category, sortOrder: order }); const storedCategory = (await tx.select().from(menuCategories).where(and(eq(menuCategories.outletId, outlet.id), eq(menuCategories.name, category.category))).limit(1))[0]; if (storedCategory) for (const item of category.items) await tx.insert(menuItems).values({ categoryId: storedCategory.id, name: item.name, description: item.description ?? null, priceMinor: item.priceMinor, prepTimeMinutes: item.prepTimeMinutes }); }
       } else {
         const kitchenPayload = parseJson<NonNullable<BusinessApplicationDraft["cloudKitchen"]>>(detail.cloudKitchenPayload, { kitchenName: detail.displayName ?? "Cloud Kitchen", capacityLimit: 10, brands: [], stations: [] });
@@ -206,12 +206,12 @@ export async function reviewBusinessApplication(reviewerUserId: number, applicat
         const kitchen = (await tx.select().from(cloudKitchens).where(eq(cloudKitchens.organisationId, organisation.id)).limit(1))[0];
         if (!kitchen) throw new Error("Cloud Kitchen activation failed.");
         await tx.insert(serviceZones).values({ organisationId: organisation.id, cloudKitchenId: kitchen.id, name: zone.name, city: detail.city!, deliveryFeeMinor: zone.deliveryFeeMinor, minimumOrderMinor: zone.minimumOrderMinor });
-        for (let weekday = 0; weekday < 7; weekday++) await tx.insert(businessHours).values({ scopeType: "cloud_kitchen", scopeId: kitchen.id, weekday, opensAt: detail.openingTime, closesAt: detail.closingTime }).onDuplicateKeyUpdate({ set: { opensAt: detail.openingTime, closesAt: detail.closingTime, isClosed: false, updatedAt: now } });
+        for (let weekday = 0; weekday < 7; weekday++) await tx.insert(businessHours).values({ scopeType: "cloud_kitchen", scopeId: kitchen.id, weekday, opensAt: detail.openingTime, closesAt: detail.closingTime }).onConflictDoUpdate({ target: [businessHours.scopeType, businessHours.scopeId, businessHours.weekday], set: { opensAt: detail.openingTime, closesAt: detail.closingTime, isClosed: false, updatedAt: now } });
         for (const station of kitchenPayload.stations) await tx.insert(productionStations).values({ cloudKitchenId: kitchen.id, name: station.name, capacityLimit: station.capacity });
         for (const brand of kitchenPayload.brands) { await tx.insert(kitchenBrands).values({ cloudKitchenId: kitchen.id, name: brand.name, cuisine: brand.cuisine, description: brand.description ?? null, prepTimeMinutes: detail.prepTimeMinutes! }); const storedBrand = (await tx.select().from(kitchenBrands).where(and(eq(kitchenBrands.cloudKitchenId, kitchen.id), eq(kitchenBrands.name, brand.name))).limit(1))[0]; if (storedBrand) for (const [order, category] of menu.entries()) { await tx.insert(menuCategories).values({ kitchenBrandId: storedBrand.id, name: category.category, sortOrder: order }); const storedCategory = (await tx.select().from(menuCategories).where(and(eq(menuCategories.kitchenBrandId, storedBrand.id), eq(menuCategories.name, category.category))).limit(1))[0]; if (storedCategory) for (const item of category.items) await tx.insert(menuItems).values({ categoryId: storedCategory.id, name: item.name, description: item.description ?? null, priceMinor: item.priceMinor, prepTimeMinutes: item.prepTimeMinutes }); } }
       }
-      await tx.insert(workspaceMemberships).values({ userId: application.userId, workspaceType: "business", status: "active", applicationId, approvedAt: now }).onDuplicateKeyUpdate({ set: { status: "active", applicationId, approvedAt: now, suspendedAt: null, suspensionReason: null, updatedAt: now } });
-      await tx.insert(domainOutboxEvents).values({ domain: "business-onboarding", eventType: "business.approved", aggregateType: "business_application", aggregateId: String(applicationId), payload: JSON.stringify({ applicationId, organisationId: organisation.id, ownerUserId: application.userId, businessType }), deduplicationKey: `business.approved:${applicationId}` }).onDuplicateKeyUpdate({ set: { processedAt: null, attempts: 0, lastError: null } });
+      await tx.insert(workspaceMemberships).values({ userId: application.userId, workspaceType: "business", status: "active", applicationId, approvedAt: now }).onConflictDoUpdate({ target: [workspaceMemberships.userId, workspaceMemberships.workspaceType], set: { status: "active", applicationId, approvedAt: now, suspendedAt: null, suspensionReason: null, updatedAt: now } });
+      await tx.insert(domainOutboxEvents).values({ domain: "business-onboarding", eventType: "business.approved", aggregateType: "business_application", aggregateId: String(applicationId), payload: JSON.stringify({ applicationId, organisationId: organisation.id, ownerUserId: application.userId, businessType }), deduplicationKey: `business.approved:${applicationId}` }).onConflictDoUpdate({ target: domainOutboxEvents.deduplicationKey, set: { processedAt: null, attempts: 0, lastError: null } });
     }
     await tx.insert(auditEvents).values({ actorUserId: reviewerUserId, entityType: "business_application", entityId: String(applicationId), action: `business_application_${status}`, previousValue: JSON.stringify({ status: application.status }), nextValue: JSON.stringify({ status, reviewNote: reviewNote?.trim() || null }) });
   });
@@ -553,7 +553,7 @@ export async function updateManagedBusinessHours(userId: number, hours: Business
   await context.db.transaction(async (tx: any) => {
     for (const hour of hours) {
       const values = { scopeType: scope.scopeType, scopeId: scope.scopeId, weekday: hour.weekday, opensAt: hour.isClosed ? null : hour.opensAt, closesAt: hour.isClosed ? null : hour.closesAt, isClosed: hour.isClosed, updatedAt };
-      await tx.insert(businessHours).values(values).onDuplicateKeyUpdate({ set: values });
+      await tx.insert(businessHours).values(values).onConflictDoUpdate({ target: [businessHours.scopeType, businessHours.scopeId, businessHours.weekday], set: values });
     }
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "business_hours", entityId: `${scope.scopeType}:${scope.scopeId}`, action: "business_operating_hours_updated", previousValue: JSON.stringify(previousHours), nextValue: JSON.stringify(hours) });
     await tx.insert(domainOutboxEvents).values({ domain: "business", eventType: "business.operating_hours_updated", aggregateType: "business_hours", aggregateId: `${scope.scopeType}:${scope.scopeId}`, payload: JSON.stringify({ organisationId: context.organisation.id, scope, hours }), deduplicationKey: `business.operating_hours_updated:${scope.scopeType}:${scope.scopeId}:${crypto.randomUUID()}` });

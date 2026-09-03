@@ -1,16 +1,20 @@
 import { and, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import { accountProfiles, auditEvents, InsertUser, users, workspaceApplications, workspaceMemberships } from "../drizzle/schema";
 import { canEditWorkspaceApplication, canReviewWorkspaceApplication, resolveWorkspaceAvailability, type WorkspaceApplicationInput, type WorkspaceApplicationStatus, type WorkspaceApplicationType, type WorkspaceAvailabilityStatus, type WorkspaceType } from "../shared/workspace";
 import { ENV } from "./_core/env";
 
+
+let _pool: Pool | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+      _db = drizzle(_pool);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -69,7 +73,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
+    await db.insert(users).values(values).onConflictDoUpdate({
+      target: users.openId,
       set: updateSet,
     });
   } catch (error) {
@@ -187,7 +192,7 @@ export async function reviewWorkspaceApplication(reviewerUserId: number, applica
     const now = new Date();
     await tx.update(workspaceApplications).set({ status: nextStatus, reviewNote: reviewNote?.trim() || null, reviewedAt: now, reviewedByUserId: reviewerUserId }).where(eq(workspaceApplications.id, applicationId));
     if (nextStatus === "approved") {
-      await tx.insert(workspaceMemberships).values({ userId: application.userId, workspaceType: application.workspaceType, status: "active", applicationId, approvedAt: now }).onDuplicateKeyUpdate({ set: { status: "active", applicationId, approvedAt: now, suspendedAt: null, suspensionReason: null, updatedAt: now } });
+      await tx.insert(workspaceMemberships).values({ userId: application.userId, workspaceType: application.workspaceType, status: "active", applicationId, approvedAt: now }).onConflictDoUpdate({ target: [workspaceMemberships.userId, workspaceMemberships.workspaceType], set: { status: "active", applicationId, approvedAt: now, suspendedAt: null, suspensionReason: null, updatedAt: now } });
     }
     await tx.insert(auditEvents).values({ actorUserId: reviewerUserId, entityType: "workspace_application", entityId: String(applicationId), action: `application_${nextStatus}`, previousValue: JSON.stringify({ status: application.status }), nextValue: JSON.stringify({ status: nextStatus, reviewNote: reviewNote?.trim() || null }) });
   });
@@ -202,6 +207,6 @@ export async function updateAccountProfile(userId: number, input: { givenName?: 
     phoneVerifiedAt: input.phoneVerified ? new Date() : null,
     defaultCity: input.defaultCity?.trim() || null,
   } as const;
-  await db.insert(accountProfiles).values({ userId, ...profileValues }).onDuplicateKeyUpdate({ set: { ...profileValues, updatedAt: new Date() } });
+  await db.insert(accountProfiles).values({ userId, ...profileValues }).onConflictDoUpdate({ target: accountProfiles.userId, set: { ...profileValues, updatedAt: new Date() } });
   await db.insert(auditEvents).values({ actorUserId: userId, entityType: "account_profile", entityId: String(userId), action: "contact_profile_saved", nextValue: JSON.stringify({ hasPhone: Boolean(input.phoneE164), phoneVerified: false, contactConsent: Boolean(input.phoneE164 && input.contactConsent) }) });
 }

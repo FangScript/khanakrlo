@@ -1,16 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { createClient, type SupportedStorage } from "@supabase/supabase-js";
-import * as SecureStore from "expo-secure-store";
+import { createClient, type SupportedStorage, type SupabaseClient } from "@supabase/supabase-js";
 import { Platform } from "react-native";
 
 const projectUrl = process.env.EXPO_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
 const publishableKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-
-const secureStoreAdapter: SupportedStorage = {
-  getItem: (key) => SecureStore.getItemAsync(key),
-  setItem: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
-  removeItem: (key) => SecureStore.deleteItemAsync(key),
-};
 
 const memoryStorage: SupportedStorage = {
   getItem: async () => null,
@@ -18,16 +11,16 @@ const memoryStorage: SupportedStorage = {
   removeItem: async () => undefined,
 };
 
-const canUseBrowserStorage = Platform.OS !== "web" || typeof window !== "undefined";
-const authStorage = !canUseBrowserStorage ? memoryStorage : Platform.OS === "web" ? AsyncStorage : secureStoreAdapter;
+const canUseStorage = Platform.OS !== "web" || typeof window !== "undefined";
+const authStorage = canUseStorage ? AsyncStorage : memoryStorage;
 
-let supabase = null;
+let supabase: SupabaseClient | null = null;
 if (projectUrl && publishableKey) {
   supabase = createClient(projectUrl, publishableKey, {
     auth: {
       storage: authStorage,
-      autoRefreshToken: canUseBrowserStorage,
-      persistSession: canUseBrowserStorage,
+      autoRefreshToken: canUseStorage,
+      persistSession: canUseStorage,
       detectSessionInUrl: false,
       flowType: "pkce",
     },

@@ -141,8 +141,8 @@ export async function openRemittanceReviewCase(userId: number, input: { receiptI
   const receipt = (await db.select().from(riderCashSettlementReceipts).where(eq(riderCashSettlementReceipts.id, input.receiptId)).limit(1))[0];
   if (!receipt) throw new DomainError("NOT_FOUND", "Rider settlement receipt not found.");
   const now = new Date();
-  const result = await db.insert(adminOperationalCases).values({ caseType: "rider_remittance", targetId: receipt.id, status: "open", priority: input.priority, reason: input.reason, openedByUserId: userId, reviewDueAt: caseDueAt(input.priority, input.reviewDueAt), createdAt: now, updatedAt: now });
-  const caseId = Number(result[0].insertId);
+  const [createdCase] = await db.insert(adminOperationalCases).values({ caseType: "rider_remittance", targetId: receipt.id, status: "open", priority: input.priority, reason: input.reason, openedByUserId: userId, reviewDueAt: caseDueAt(input.priority, input.reviewDueAt), createdAt: now, updatedAt: now }).returning({ id: adminOperationalCases.id });
+  const caseId = createdCase.id;
   await audit(userId, "rider_cash_settlement_receipt", receipt.id, "admin_remittance_review_opened", { caseId, receiptCode: receipt.receiptCode, reason: input.reason });
   return { caseId };
 }
@@ -278,7 +278,7 @@ export async function provisionAdminStaffRole(userId: number, input: { userId: n
   const action = !previous ? "provisioned" : input.status === "inactive" ? "deactivated" : previous.status === "inactive" ? "reactivated" : "delegated";
   const now = new Date();
   await db.transaction(async (tx) => {
-    await tx.insert(adminStaffRoles).values({ userId: input.userId, staffRole: input.staffRole, status: input.status, grantedByUserId: userId, createdAt: now, updatedAt: now }).onDuplicateKeyUpdate({ set: { staffRole: input.staffRole, status: input.status, grantedByUserId: userId, updatedAt: now } });
+    await tx.insert(adminStaffRoles).values({ userId: input.userId, staffRole: input.staffRole, status: input.status, grantedByUserId: userId, createdAt: now, updatedAt: now }).onConflictDoUpdate({ target: adminStaffRoles.userId, set: { staffRole: input.staffRole, status: input.status, grantedByUserId: userId, updatedAt: now } });
     await tx.insert(adminStaffRoleEvents).values({ targetUserId: input.userId, actorUserId: userId, previousRole: previous?.staffRole ?? null, nextRole: input.staffRole, action, note: input.note ?? null, createdAt: now });
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "admin_staff_role", entityId: String(input.userId), action: `admin_staff_role_${action}`, previousValue: JSON.stringify(previous ? { staffRole: previous.staffRole, status: previous.status } : null), nextValue: JSON.stringify({ staffRole: input.staffRole, status: input.status, note: input.note ?? null }) });
     await tx.insert(domainOutboxEvents).values({ domain: "admin", eventType: `admin.staff_role_${action}`, aggregateType: "user", aggregateId: String(input.userId), payload: JSON.stringify({ targetUserId: input.userId, staffRole: input.staffRole, status: input.status }), deduplicationKey: eventKey(`admin.staff_role_${action}`, input.userId) });
@@ -348,8 +348,8 @@ export async function runAdminAiTriage(userId: number, input: { subjectType: "ph
   if (typeof content !== "string") throw new DomainError("INTERNAL", "AI triage did not return structured content.");
   const advisory = parseAdvisoryTriage(content);
   const now = new Date();
-  const result = await db.insert(adminAiTriageAssessments).values({ subjectType: input.subjectType, subjectId: input.subjectId, requestedByUserId: userId, model: "gpt-5-mini", inputSummary, assessmentSummary: advisory.assessmentSummary, confidenceBps: advisory.confidenceBps, recommendedPriority: advisory.recommendedPriority, suggestedDisposition: advisory.suggestedDisposition, safetySignalsJson: JSON.stringify(advisory.safetySignals), reviewState: "pending_human_review", createdAt: now });
-  const assessmentId = Number(result[0].insertId);
+  const [createdAssessment] = await db.insert(adminAiTriageAssessments).values({ subjectType: input.subjectType, subjectId: input.subjectId, requestedByUserId: userId, model: "gpt-5-mini", inputSummary, assessmentSummary: advisory.assessmentSummary, confidenceBps: advisory.confidenceBps, recommendedPriority: advisory.recommendedPriority, suggestedDisposition: advisory.suggestedDisposition, safetySignalsJson: JSON.stringify(advisory.safetySignals), reviewState: "pending_human_review", createdAt: now }).returning({ id: adminAiTriageAssessments.id });
+  const assessmentId = createdAssessment.id;
   await db.transaction(async (tx) => {
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "admin_ai_triage_assessment", entityId: String(assessmentId), action: "admin_ai_triage_requested", nextValue: JSON.stringify({ subjectType: input.subjectType, subjectId: input.subjectId, model: "gpt-5-mini", confidenceBps: advisory.confidenceBps, suggestedDisposition: advisory.suggestedDisposition, reviewState: "pending_human_review" }) });
     await tx.insert(domainOutboxEvents).values({ domain: "admin", eventType: "admin.ai_triage_completed", aggregateType: "admin_ai_triage_assessment", aggregateId: String(assessmentId), payload: JSON.stringify({ assessmentId, subjectType: input.subjectType, subjectId: input.subjectId, confidenceBps: advisory.confidenceBps, reviewState: "pending_human_review" }), deduplicationKey: eventKey("admin.ai_triage_completed", assessmentId) });
@@ -379,8 +379,8 @@ export async function submitAdminAiTriageFeedback(userId: number, input: { asses
   await requireCapability(userId, capability);
   if (assessment.reviewState === "pending_human_review") throw new DomainError("CONFLICT", "A human must acknowledge or override the AI assessment before recording quality feedback.");
   const now = new Date();
-  const result = await db.insert(adminAiTriageFeedback).values({ assessmentId: assessment.id, submittedByUserId: userId, outcome: input.outcome, note: input.note ?? null, createdAt: now });
-  const feedbackId = Number(result[0].insertId);
+  const [createdFeedback] = await db.insert(adminAiTriageFeedback).values({ assessmentId: assessment.id, submittedByUserId: userId, outcome: input.outcome, note: input.note ?? null, createdAt: now }).returning({ id: adminAiTriageFeedback.id });
+  const feedbackId = createdFeedback.id;
   await db.transaction(async (tx) => {
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "admin_ai_triage_feedback", entityId: String(feedbackId), action: "admin_ai_triage_feedback_recorded", nextValue: JSON.stringify({ assessmentId: assessment.id, outcome: input.outcome, note: input.note ?? null }) });
     await tx.insert(domainOutboxEvents).values({ domain: "admin", eventType: "admin.ai_triage_feedback_recorded", aggregateType: "admin_ai_triage_assessment", aggregateId: String(assessment.id), payload: JSON.stringify({ feedbackId, assessmentId: assessment.id, outcome: input.outcome }), deduplicationKey: eventKey("admin.ai_triage_feedback_recorded", feedbackId) });

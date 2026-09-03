@@ -1,11 +1,12 @@
 import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { getPostGoogleRegistrationDestination } from "@/lib/registration-routing";
 import { consumeSupabaseCallback } from "@/lib/supabase-auth";
+import { supabase } from "@/lib/supabase";
 
 export default function SupabaseCallbackScreen() {
   const params = useLocalSearchParams<{ code?: string; error?: string; error_description?: string }>();
@@ -14,12 +15,24 @@ export default function SupabaseCallbackScreen() {
     let active = true;
     void (async () => {
       try {
-        const initialUrl = await Linking.getInitialURL();
-        const query = new URLSearchParams();
-        if (params.code) query.set("code", params.code);
-        if (params.error) query.set("error", params.error);
-        if (params.error_description) query.set("error_description", params.error_description);
-        await consumeSupabaseCallback(initialUrl ?? Linking.createURL(`auth/supabase-callback?${query.toString()}`));
+        if (params.error || params.error_description) {
+          throw new Error(params.error_description || params.error || "Authentication failed");
+        }
+        if (params.code) {
+          await consumeSupabaseCallback(params.code);
+        } else {
+          const initialUrl = Platform.OS === "web" && typeof window !== "undefined"
+            ? window.location.href
+            : await Linking.getInitialURL();
+          if (initialUrl && (initialUrl.includes("code=") || initialUrl.includes("access_token="))) {
+            await consumeSupabaseCallback(initialUrl);
+          } else {
+            const { data } = (await supabase?.auth.getSession()) ?? {};
+            if (!data?.session) {
+              await consumeSupabaseCallback(initialUrl || Linking.createURL("auth/supabase-callback"));
+            }
+          }
+        }
         if (active) router.replace(getPostGoogleRegistrationDestination() as never);
       } catch (caught) { if (active) setError(caught instanceof Error ? caught.message : "Could not complete Google sign-in."); }
     })();

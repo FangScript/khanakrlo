@@ -311,7 +311,7 @@ export async function getDispatchRecommendations(userId: number, orderId: number
     return { riderUserId: membership.userId, displayName: profileByRider.get(membership.userId)?.givenName ?? `Rider ${membership.userId}`, score, activeWorkload: workload, availabilityAgeSeconds, eligibility: eligible ? "eligible" as const : "ineligible" as const, explanation };
   }).sort((left, right) => right.score - left.score || left.activeWorkload - right.activeWorkload || left.riderUserId - right.riderUserId);
   for (const recommendation of recommendations) {
-    await db.insert(dispatchScoreSnapshots).values({ orderId, riderUserId: recommendation.riderUserId, score: recommendation.score, activeWorkload: recommendation.activeWorkload, availabilityAgeSeconds: recommendation.availabilityAgeSeconds, eligibility: recommendation.eligibility, explanationJson: JSON.stringify(recommendation.explanation), computedAt: now }).onDuplicateKeyUpdate({ set: { score: recommendation.score, activeWorkload: recommendation.activeWorkload, availabilityAgeSeconds: recommendation.availabilityAgeSeconds, eligibility: recommendation.eligibility, explanationJson: JSON.stringify(recommendation.explanation), computedAt: now } });
+    await db.insert(dispatchScoreSnapshots).values({ orderId, riderUserId: recommendation.riderUserId, score: recommendation.score, activeWorkload: recommendation.activeWorkload, availabilityAgeSeconds: recommendation.availabilityAgeSeconds, eligibility: recommendation.eligibility, explanationJson: JSON.stringify(recommendation.explanation), computedAt: now }).onConflictDoUpdate({ target: [dispatchScoreSnapshots.orderId, dispatchScoreSnapshots.riderUserId], set: { score: recommendation.score, activeWorkload: recommendation.activeWorkload, availabilityAgeSeconds: recommendation.availabilityAgeSeconds, eligibility: recommendation.eligibility, explanationJson: JSON.stringify(recommendation.explanation), computedAt: now } });
   }
   return recommendations;
 }
@@ -349,7 +349,7 @@ export async function setRiderAvailability(userId: number, status: "online" | "o
   const db = await requireDb();
   await requireActiveRider(db, userId);
   const now = new Date();
-  await db.insert(riderAvailability).values({ riderUserId: userId, status, updatedAt: now }).onDuplicateKeyUpdate({ set: { status, updatedAt: now } });
+  await db.insert(riderAvailability).values({ riderUserId: userId, status, updatedAt: now }).onConflictDoUpdate({ target: riderAvailability.riderUserId, set: { status, updatedAt: now } });
   await db.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_availability", entityId: String(userId), action: `rider_${status}`, nextValue: JSON.stringify({ status, updatedAt: now.toISOString() }) });
   await db.insert(domainOutboxEvents).values({ domain: "dispatch", eventType: `rider.availability_${status}`, aggregateType: "rider", aggregateId: String(userId), payload: JSON.stringify({ riderUserId: userId, status }), deduplicationKey: eventKey(`rider.availability_${status}`, userId) });
   return { riderUserId: userId, status, updatedAt: now };
@@ -421,12 +421,12 @@ export async function remitRiderCash(userId: number, amountMinor: number) {
     const now = new Date(); const nextBalance = account.balanceMinor - amountMinor;
     await tx.update(riderCashAccounts).set({ balanceMinor: nextBalance, updatedAt: now }).where(eq(riderCashAccounts.id, account.id));
     const remittanceReference = `remittance:${now.toISOString()}`;
-    const entryResult = await tx.insert(riderCashAccountEntries).values({ riderCashAccountId: account.id, riderUserId: userId, entryType: "settlement_adjustment", amountMinor: -amountMinor, balanceAfterMinor: nextBalance, reference: remittanceReference });
-    const cashAccountEntryId = Number(entryResult[0].insertId);
+    const [entryCreated] = await tx.insert(riderCashAccountEntries).values({ riderCashAccountId: account.id, riderUserId: userId, entryType: "settlement_adjustment", amountMinor: -amountMinor, balanceAfterMinor: nextBalance, reference: remittanceReference }).returning({ id: riderCashAccountEntries.id });
+    const cashAccountEntryId = entryCreated.id;
     const reconciledOrderIds = unsettled.map((order: typeof orders.$inferSelect) => order.id);
     const receiptCode = `KK-SR-${userId}-${now.getTime()}-${cashAccountEntryId}`;
-    const receiptResult = await tx.insert(riderCashSettlementReceipts).values({ riderUserId: userId, riderCashAccountId: account.id, cashAccountEntryId, receiptCode, amountMinor, balanceAfterMinor: nextBalance, reconciledOrderIdsJson: JSON.stringify(reconciledOrderIds), issuedAt: now });
-    const receiptId = Number(receiptResult[0].insertId);
+    const [receiptCreated] = await tx.insert(riderCashSettlementReceipts).values({ riderUserId: userId, riderCashAccountId: account.id, cashAccountEntryId, receiptCode, amountMinor, balanceAfterMinor: nextBalance, reconciledOrderIdsJson: JSON.stringify(reconciledOrderIds), issuedAt: now }).returning({ id: riderCashSettlementReceipts.id });
+    const receiptId = receiptCreated.id;
     await tx.update(orders).set({ settlementStatus: "reconciled", updatedAt: now }).where(inArray(orders.id, reconciledOrderIds));
     await tx.update(paymentLedgerEntries).set({ status: "settled" }).where(and(inArray(paymentLedgerEntries.orderId, reconciledOrderIds), eq(paymentLedgerEntries.riderUserId, userId), eq(paymentLedgerEntries.entryType, "rider_cash_custody")));
     await tx.insert(auditEvents).values({ actorUserId: userId, entityType: "rider_cash_account", entityId: String(account.id), action: "rider_remittance_submitted", nextValue: JSON.stringify({ amountMinor, orderIds: reconciledOrderIds, receiptCode }) });

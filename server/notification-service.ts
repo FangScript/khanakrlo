@@ -38,8 +38,8 @@ export async function createUserNotification(input: NotificationInput) {
     if (existing) return existing;
     const preferences = (await tx.select().from(notificationPreferences).where(eq(notificationPreferences.userId, input.recipientUserId)).limit(1))[0];
     const allowed = preferenceAllows(preferences, input.category);
-    const result = await tx.insert(userNotifications).values({ ...input });
-    const notificationId = Number(result[0].insertId);
+    const [createdRow] = await tx.insert(userNotifications).values({ ...input }).returning({ id: userNotifications.id });
+    const notificationId = createdRow.id;
     const created = (await tx.select().from(userNotifications).where(eq(userNotifications.id, notificationId)).limit(1))[0];
     if (!created) throw new DomainError("INTERNAL", "The in-app notification could not be recorded.");
     await tx.insert(notificationDeliveries).values({ notificationId, channel: "in_app", status: "delivered", deliveredAt: new Date() });
@@ -56,7 +56,7 @@ export async function createUserNotification(input: NotificationInput) {
 export async function registerExpoDeviceToken(userId: number, input: { token: string; platform: "ios" | "android" }) {
   const db = await requireDb();
   const now = new Date();
-  await db.insert(notificationDeviceTokens).values({ userId, token: input.token, platform: input.platform, status: "active", lastSeenAt: now, disabledAt: null, failureReason: null }).onDuplicateKeyUpdate({ set: { userId, platform: input.platform, status: "active", lastSeenAt: now, disabledAt: null, failureReason: null, updatedAt: now } });
+  await db.insert(notificationDeviceTokens).values({ userId, token: input.token, platform: input.platform, status: "active", lastSeenAt: now, disabledAt: null, failureReason: null }).onConflictDoUpdate({ target: notificationDeviceTokens.token, set: { userId, platform: input.platform, status: "active", lastSeenAt: now, disabledAt: null, failureReason: null, updatedAt: now } });
   return { registered: true as const, lastSeenAt: now };
 }
 
