@@ -53,7 +53,9 @@ export const appRouter = router({
       phoneE164: z.string().regex(/^\+923\d{9}$/, "Enter a valid Pakistan mobile number."),
       contactConsent: z.literal(true),
     })).mutation(async ({ ctx, input }) => {
+      console.log(`[tRPC] account.saveContact called by user ${ctx.user.id} (${ctx.user.email ?? ctx.user.name}) with phone: ${input.phoneE164}`);
       await updateAccountProfile(ctx.user.id, { phoneE164: input.phoneE164, phoneVerified: false, contactConsent: input.contactConsent });
+      console.log(`[tRPC] account.saveContact completed successfully for user ${ctx.user.id}`);
       return { success: true, phoneVerified: false } as const;
     }),
   }),

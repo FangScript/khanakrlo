@@ -202,13 +202,16 @@ export async function updateAccountProfile(userId: number, input: { givenName?: 
   const db = await getRequiredDb();
   if (input.phoneE164 && !input.contactConsent) throw new Error("Consent is required before saving a mobile number for active-order contact.");
 
+  console.log(`[Account] updateAccountProfile called for userId: ${userId}, phone: ${input.phoneE164}`);
+
   if (input.phoneE164) {
     // If this phone number was previously registered to another account (e.g. testing with different accounts),
     // clear it from the old account so it can be cleanly claimed by this account without a unique constraint violation.
-    await db
+    const unlinked = await db
       .update(accountProfiles)
       .set({ phoneE164: null, phoneVerifiedAt: null, updatedAt: new Date() })
       .where(and(eq(accountProfiles.phoneE164, input.phoneE164), ne(accountProfiles.userId, userId)));
+    console.log(`[Account] Cleared duplicate phone from other accounts if any.`);
   }
 
   const profileValues = {
@@ -217,6 +220,37 @@ export async function updateAccountProfile(userId: number, input: { givenName?: 
     phoneVerifiedAt: input.phoneVerified ? new Date() : null,
     defaultCity: input.defaultCity?.trim() || null,
   } as const;
-  await db.insert(accountProfiles).values({ userId, ...profileValues }).onConflictDoUpdate({ target: accountProfiles.userId, set: { ...profileValues, updatedAt: new Date() } });
-  await db.insert(auditEvents).values({ actorUserId: userId, entityType: "account_profile", entityId: String(userId), action: "contact_profile_saved", nextValue: JSON.stringify({ hasPhone: Boolean(input.phoneE164), phoneVerified: false, contactConsent: Boolean(input.phoneE164 && input.contactConsent) }) });
+
+  // Check if profile exists for this userId
+  const existing = await db
+    .select({ id: accountProfiles.id })
+    .from(accountProfiles)
+    .where(eq(accountProfiles.userId, userId))
+    .limit(1);
+
+  if (existing.length > 0) {
+    console.log(`[Account] Updating existing profile id ${existing[0].id} for userId ${userId}`);
+    await db
+      .update(accountProfiles)
+      .set({ ...profileValues, updatedAt: new Date() })
+      .where(eq(accountProfiles.userId, userId));
+  } else {
+    console.log(`[Account] Inserting new profile for userId ${userId}`);
+    await db.insert(accountProfiles).values({ userId, ...profileValues });
+  }
+
+  await db.insert(auditEvents).values({
+    actorUserId: userId,
+    entityType: "account_profile",
+    entityId: String(userId),
+    action: "contact_profile_saved",
+    nextValue: JSON.stringify({
+      hasPhone: Boolean(input.phoneE164),
+      phone: input.phoneE164,
+      phoneVerified: false,
+      contactConsent: Boolean(input.phoneE164 && input.contactConsent),
+    }),
+  });
+
+  console.log(`[Account] Successfully saved profile and audit event for userId ${userId}`);
 }

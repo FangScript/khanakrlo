@@ -9,24 +9,41 @@ import { isValidPakistaniMobile, normalizePakistaniMobile } from "@/lib/customer
 import { parseAuthReturnDestination } from "@/lib/registration-routing";
 import { trpc } from "@/lib/trpc";
 
+import { supabase } from "@/lib/supabase";
+
 export default function ContactRegistrationScreen() {
   const params = useLocalSearchParams<{ returnTo?: string | string[] }>();
   const { user, loading } = useAuth();
   const [phone, setPhone] = useState("");
-  const [contactConsent, setContactConsent] = useState(false);
+  const [contactConsent, setContactConsent] = useState(true);
   const returnTo = parseAuthReturnDestination(params.returnTo);
   const saveContact = trpc.account.saveContact.useMutation();
   useEffect(() => { if (!loading && !user) router.replace("/auth/login" as never); }, [loading, user]);
   if (loading) return <ScreenContainer><View style={styles.loading}><ActivityIndicator color="#168A4A" /><Text style={styles.loadingText}>Confirming your Google sign-in…</Text></View></ScreenContainer>;
   const firstName = user?.name?.split(" ")[0] ?? "there";
-  const canContinue = !phone || (isValidPakistaniMobile(phone) && contactConsent);
+  const cleanPhone = normalizePakistaniMobile(phone);
+  const canContinue = !phone || isValidPakistaniMobile(cleanPhone);
   const continueToLocation = async () => {
-    if (phone && !contactConsent) return Alert.alert("Consent required", "Confirm that Khana KarLo may use this number for active-order contact and delivery updates.");
+    if (cleanPhone && !contactConsent) return Alert.alert("Consent required", "Confirm that Khana KarLo may use this number for active-order contact and delivery updates.");
     try {
-      if (phone) await saveContact.mutateAsync({ phoneE164: `+92${phone}`, contactConsent: true });
+      if (cleanPhone) {
+        const phoneE164 = `+92${cleanPhone}`;
+        console.log("[Contact] Saving phoneE164:", phoneE164);
+        await saveContact.mutateAsync({ phoneE164, contactConsent: true });
+        try {
+          if (supabase) {
+            await supabase.auth.updateUser({ data: { phone: phoneE164 } });
+          }
+        } catch (e) {
+          console.warn("[Contact] Optional Supabase metadata update note:", e);
+        }
+      }
       const suffix = returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : "";
-      router.push(`/auth/location?phone=${encodeURIComponent(phone)}${suffix}` as never);
-    } catch (error) { Alert.alert("Could not save contact number", error instanceof Error ? error.message : "Please try again."); }
+      router.push(`/auth/location?phone=${encodeURIComponent(cleanPhone)}${suffix}` as never);
+    } catch (error) {
+      console.error("[Contact] Failed to save contact:", error);
+      Alert.alert("Could not save contact number", error instanceof Error ? error.message : "Please try again.");
+    }
   };
   return <ScreenContainer edges={["top", "bottom", "left", "right"]}><View style={styles.screen}><View style={styles.top}><View style={styles.step}><View style={styles.stepActive} /><View style={styles.stepActive} /><View style={styles.stepInactive} /></View><Text style={styles.stepText}>STEP 2 OF 3</Text></View><View style={styles.content}><View style={styles.icon}><MaterialIcons name="phone-iphone" size={28} color="#064B2C" /></View><Text style={styles.title}>Contact for active orders, {firstName}.</Text><Text style={styles.subtitle}>Your Google account signs you in. Add a mobile number only if you want delivery updates and protected contact during an active order.</Text><Text style={styles.label}>Pakistan mobile number <Text style={styles.optional}>(optional)</Text></Text><View style={styles.phoneRow}><View style={styles.country}><Text style={styles.countryText}>+92</Text></View><TextInput value={phone} onChangeText={(value) => setPhone(normalizePakistaniMobile(value))} placeholder="3XX XXX XXXX" placeholderTextColor="#98A49A" keyboardType="phone-pad" returnKeyType="done" autoFocus style={styles.phoneInput} /></View><Text style={styles.helper}>{phone ? "This number is not used for sign-in or account recovery." : "You can add or update a mobile number later from your profile."}</Text>{phone ? <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: contactConsent }} onPress={() => setContactConsent((current) => !current)} style={({ pressed }) => [styles.consent, pressed && styles.pressed]}><MaterialIcons name={contactConsent ? "check-box" : "check-box-outline-blank"} size={22} color="#064B2C" /><Text style={styles.consentText}>I consent to Khana KarLo using this number for my delivery updates and order-scoped contact. It will not be shown publicly.</Text></Pressable> : null}</View><View style={styles.footer}><Pressable accessibilityRole="button" disabled={!canContinue || saveContact.isPending} onPress={() => void continueToLocation()} style={({ pressed }) => [styles.action, (!canContinue || saveContact.isPending) && styles.actionDisabled, pressed && canContinue && !saveContact.isPending && styles.pressed]}>{saveContact.isPending ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.actionText}>{phone ? "Continue" : "Skip for now"}</Text><MaterialIcons name="arrow-forward" size={19} color="#FFFFFF" /></>}</Pressable></View></View></ScreenContainer>;
 }
