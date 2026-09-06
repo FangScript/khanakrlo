@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { accountProfiles, auditEvents, InsertUser, users, workspaceApplications, workspaceMemberships } from "../drizzle/schema";
@@ -201,6 +201,16 @@ export async function reviewWorkspaceApplication(reviewerUserId: number, applica
 export async function updateAccountProfile(userId: number, input: { givenName?: string; phoneE164?: string; phoneVerified?: boolean; contactConsent?: boolean; defaultCity?: string }) {
   const db = await getRequiredDb();
   if (input.phoneE164 && !input.contactConsent) throw new Error("Consent is required before saving a mobile number for active-order contact.");
+
+  if (input.phoneE164) {
+    // If this phone number was previously registered to another account (e.g. testing with different accounts),
+    // clear it from the old account so it can be cleanly claimed by this account without a unique constraint violation.
+    await db
+      .update(accountProfiles)
+      .set({ phoneE164: null, phoneVerifiedAt: null, updatedAt: new Date() })
+      .where(and(eq(accountProfiles.phoneE164, input.phoneE164), ne(accountProfiles.userId, userId)));
+  }
+
   const profileValues = {
     givenName: input.givenName?.trim() || null,
     phoneE164: input.phoneE164 ?? null,

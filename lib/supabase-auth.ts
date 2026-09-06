@@ -102,7 +102,8 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
     return "redirecting";
   }
 
-  console.log("[Auth] Opening browser auth session...");
+  console.log("[Auth] Supabase OAuth URL:", data.url);
+  console.log("[Auth] Opening browser auth session with redirect URI:", redirectTo);
   const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
   console.log("[Auth] Browser auth session finished with type:", result.type);
   if (result.type !== "success" || !result.url) return "cancelled";

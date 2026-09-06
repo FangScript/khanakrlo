@@ -5,6 +5,8 @@ import { formatDeliveryAddress, isValidPakistaniMobile, normalizePakistaniMobile
 describe("customer onboarding helpers", () => {
   it("normalizes a Pakistan mobile number entered with punctuation or a country code", () => {
     expect(normalizePakistaniMobile("+92 301-234-5678")).toBe("3012345678");
+    expect(normalizePakistaniMobile("0301-234-5678")).toBe("3012345678");
+    expect(normalizePakistaniMobile("03012345678")).toBe("3012345678");
   });
 
   it("accepts only an 03xx-style local mobile number after normalization", () => {

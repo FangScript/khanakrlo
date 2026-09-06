@@ -1,5 +1,5 @@
 export function normalizePakistaniMobile(value: string) {
-  return value.replace(/\D/g, "").replace(/^92/, "").slice(0, 10);
+  return value.replace(/\D/g, "").replace(/^92/, "").replace(/^0+/, "").slice(0, 10);
 }
 
 export function isValidPakistaniMobile(phone: string) {
