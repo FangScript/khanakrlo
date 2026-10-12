@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.khanakarlo.local/events/identity.role-granted.v1.schema.json",
+  "title": "Identity role granted event v1",
+  "allOf": [
+    { "$ref": "envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "identity.role_granted" },
+        "version": { "const": 1 },
+        "producer": { "const": "identity" },
+        "payload": {
+          "type": "object",
+          "required": ["userId", "role", "source"],
+          "properties": {
+            "userId": { "type": "string", "format": "uuid" },
+            "role": { "const": "merchant" },
+            "source": { "const": "restaurant_onboarding" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

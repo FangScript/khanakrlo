@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.khanakarlo.local/events/delivery.assigned.v1.schema.json",
+  "title": "Delivery assigned event v1",
+  "allOf": [
+    { "$ref": "envelope.schema.json" },
+    { "type": "object", "properties": {
+      "type": { "const": "delivery.assigned" }, "version": { "const": 1 }, "producer": { "const": "delivery" },
+      "payload": { "type": "object", "required": ["orderId", "riderId"], "properties": { "orderId": { "type": "string", "format": "uuid" }, "riderId": { "type": "string", "format": "uuid" } }, "additionalProperties": false }
+    } }
+  ]
+}

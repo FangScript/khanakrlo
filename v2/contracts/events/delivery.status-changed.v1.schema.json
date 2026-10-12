@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.khanakarlo.local/events/delivery.status-changed.v1.schema.json",
+  "title": "Delivery status changed event v1",
+  "allOf": [
+    { "$ref": "envelope.schema.json" },
+    { "type": "object", "properties": {
+      "type": { "const": "delivery.status_changed" }, "version": { "const": 1 }, "producer": { "const": "delivery" },
+      "payload": { "type": "object", "required": ["orderId", "riderId", "toStatus"], "properties": { "orderId": { "type": "string", "format": "uuid" }, "riderId": { "type": "string", "format": "uuid" }, "toStatus": { "enum": ["picked_up", "delivered"] } }, "additionalProperties": false }
+    } }
+  ]
+}

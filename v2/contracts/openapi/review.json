@@ -1,0 +1,12 @@
+{
+  "openapi":"3.1.0",
+  "info":{"title":"Review service API","version":"1.0.0","description":"Delivered-order reviews and staff moderation."},
+  "servers":[{"url":"/v1/review","description":"API gateway"}],
+  "paths":{
+    "/reviews":{"post":{"operationId":"createReview","security":[{"bearerAuth":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["orderId","rating"],"properties":{"orderId":{"type":"string","format":"uuid"},"rating":{"type":"integer","minimum":1,"maximum":5},"body":{"type":"string","maxLength":2000}},"additionalProperties":false}}}},"responses":{"201":{"description":"Review awaiting moderation"},"404":{"description":"Order is not eligible for this customer"},"409":{"description":"Review already exists"}}}},
+    "/reviews/mine":{"get":{"operationId":"listMyReviews","security":[{"bearerAuth":[]}],"responses":{"200":{"description":"Reviews belonging to the authenticated customer"}}}},
+    "/outlets/{outletId}/reviews":{"get":{"operationId":"listOutletReviews","parameters":[{"name":"outletId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}],"responses":{"200":{"description":"Published reviews only"}}}},
+    "/reviews/{reviewId}/moderation":{"post":{"operationId":"moderateReview","security":[{"bearerAuth":[]}],"parameters":[{"name":"reviewId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["action"],"properties":{"action":{"enum":["published","hidden"]}},"additionalProperties":false}}}},"responses":{"200":{"description":"Moderation state saved with audit record"},"403":{"description":"Staff role required"}}}}
+  },
+  "components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer","bearerFormat":"JWT"}}}
+}

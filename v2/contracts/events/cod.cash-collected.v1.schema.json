@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.khanakarlo.local/events/cod.cash-collected.v1.schema.json",
+  "title": "COD cash collected",
+  "allOf": [
+    { "$ref": "./envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "cod.cash_collected" },
+        "version": { "const": 1 },
+        "payload": {
+          "type": "object",
+          "required": ["entryId", "riderId", "orderId", "amountPaisa"],
+          "properties": {
+            "entryId": { "type": "string", "format": "uuid" },
+            "riderId": { "type": "string", "format": "uuid" },
+            "orderId": { "type": "string", "format": "uuid" },
+            "amountPaisa": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

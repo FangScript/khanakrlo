@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.khanakarlo.local/events/order.created.v1.schema.json",
+  "title": "Order created event v1",
+  "type": "object",
+  "required": ["orderId", "customerId", "outletId", "totalPaisa", "currency", "paymentMethod"],
+  "properties": {
+    "orderId": { "type": "string", "format": "uuid" },
+    "customerId": { "type": "string", "format": "uuid" },
+    "outletId": { "type": "string", "format": "uuid" },
+    "totalPaisa": { "type": "integer", "minimum": 0 },
+    "currency": { "const": "PKR" },
+    "paymentMethod": { "const": "cod" }
+  },
+  "additionalProperties": false
+}

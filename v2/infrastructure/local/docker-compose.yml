@@ -1,0 +1,264 @@
+name: khana-karlo-v2
+
+x-service-build: &service-build
+  context: ../..
+  dockerfile: infrastructure/docker/service.Dockerfile
+
+x-service-env: &service-env
+  NODE_ENV: development
+  JWT_ISSUER: ${JWT_ISSUER:-https://identity.local.khanakarlo}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-khana-karlo}
+  ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET:?Set ACCESS_TOKEN_SECRET in v2/.env}
+  INTERNAL_IDENTITY_TOKEN: ${INTERNAL_IDENTITY_TOKEN:?Set INTERNAL_IDENTITY_TOKEN in v2/.env}
+  RABBITMQ_URL: amqp://khana:khana-local-only@rabbitmq:5672
+  REDIS_URL: redis://:redis-local-only@redis:6379
+  S3_ENDPOINT: http://minio:9000
+  S3_BUCKET: ${S3_BUCKET:-khana-karlo-local}
+  S3_ACCESS_KEY: khana-local
+  S3_SECRET_KEY: khana-local-only
+  IDENTITY_URL: http://identity:3101
+  ADMIN_URL: http://admin:3102
+  RESTAURANT_URL: http://restaurant:3103
+  MENU_URL: http://menu:3104
+  ORDER_URL: http://order:3105
+  CUSTOMER_URL: http://customer:3106
+  REVIEW_URL: http://review:3107
+  PAYMENT_URL: http://payment:3108
+  DELIVERY_URL: http://delivery:3109
+  NOTIFICATION_URL: http://notification:3110
+  ANALYTICS_URL: http://analytics:3111
+  ALLOWED_ORIGINS: http://localhost:3100
+  ADMIN_ALLOWED_HOST: ${ADMIN_ALLOWED_HOST:-admin.localhost}
+  ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS:-127.0.0.1/32,::1/128}
+
+x-api-service: &api-service
+  profiles: [apps]
+  build: *service-build
+  restart: unless-stopped
+  depends_on:
+    postgres: { condition: service_healthy }
+    rabbitmq: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    minio: { condition: service_healthy }
+  healthcheck:
+    test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+process.env.PORT+'/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    interval: 10s
+    timeout: 4s
+    retries: 10
+    start_period: 20s
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres-local-only
+      POSTGRES_DB: postgres
+    ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: khana
+      RABBITMQ_DEFAULT_PASS: khana-local-only
+    ports: ["127.0.0.1:5672:5672", "127.0.0.1:15672:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "redis-local-only"]
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis-local-only", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-28T09-55-16Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: khana-local
+      MINIO_ROOT_PASSWORD: khana-local-only
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    volumes: ["minio-data:/data"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api-gateway:
+    <<: *api-service
+    command: ["pnpm", "--filter", "@khana/api-gateway", "start"]
+    environment:
+      <<: *service-env
+      PORT: "3000"
+      ALLOWED_ORIGINS: http://localhost:3100,http://localhost:3200,http://admin.localhost:3200,http://localhost:8081,http://localhost:19006
+    ports: ["127.0.0.1:3100:3000"]
+    depends_on:
+      identity: { condition: service_healthy }
+      admin: { condition: service_healthy }
+      restaurant: { condition: service_healthy }
+      menu: { condition: service_healthy }
+      order: { condition: service_healthy }
+      customer: { condition: service_healthy }
+      review: { condition: service_healthy }
+      payment: { condition: service_healthy }
+      delivery: { condition: service_healthy }
+      notification: { condition: service_healthy }
+      analytics: { condition: service_healthy }
+
+  identity:
+    <<: *api-service
+    command: ["sh", "-c", "node scripts/migrate-service.mjs identity && pnpm --filter @khana/identity start"]
+    environment:
+      <<: *service-env
+      PORT: "3101"
+      IDENTITY_DATABASE_URL: postgres://identity:identity-local-only@postgres:5432/identity
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:?Set REFRESH_TOKEN_SECRET in v2/.env}
+      GOOGLE_ANDROID_CLIENT_ID: ${GOOGLE_ANDROID_CLIENT_ID:-}
+      GOOGLE_IOS_CLIENT_ID: ${GOOGLE_IOS_CLIENT_ID:-}
+      GOOGLE_WEB_CLIENT_ID: ${GOOGLE_WEB_CLIENT_ID:-}
+      INTERNAL_RESTAURANT_IDENTITY_TOKEN: ${INTERNAL_RESTAURANT_IDENTITY_TOKEN:?Set INTERNAL_RESTAURANT_IDENTITY_TOKEN in v2/.env}
+
+  admin:
+    <<: *api-service
+    command: ["sh", "-c", "node scripts/migrate-service.mjs admin && pnpm --filter @khana/admin start"]
+    environment:
+      <<: *service-env
+      PORT: "3102"
+      ADMIN_DATABASE_URL: postgres://admin:admin-local-only@postgres:5432/admin
+      REVIEW_INTERNAL_TOKEN: ${REVIEW_INTERNAL_TOKEN:?Set REVIEW_INTERNAL_TOKEN in v2/.env}
+      ANALYTICS_INTERNAL_TOKEN: ${ANALYTICS_INTERNAL_TOKEN:?Set ANALYTICS_INTERNAL_TOKEN in v2/.env}
+      ADMIN_MFA_ENCRYPTION_KEY_HEX: ${ADMIN_MFA_ENCRYPTION_KEY_HEX:?Set ADMIN_MFA_ENCRYPTION_KEY_HEX in v2/.env}
+      ADMIN_MFA_SESSION_SECRET: ${ADMIN_MFA_SESSION_SECRET:?Set ADMIN_MFA_SESSION_SECRET in v2/.env}
+
+  restaurant:
+    <<: *api-service
+    command: ["sh", "-c", "node scripts/migrate-service.mjs restaurant && pnpm --filter @khana/restaurant start"]
+    environment:
+      <<: *service-env
+      PORT: "3103"
+      RESTAURANT_DATABASE_URL: postgres://restaurant:restaurant-local-only@postgres:5432/restaurant
+      INTERNAL_RESTAURANT_IDENTITY_TOKEN: ${INTERNAL_RESTAURANT_IDENTITY_TOKEN:?Set INTERNAL_RESTAURANT_IDENTITY_TOKEN in v2/.env}
+      RESTAURANT_INTERNAL_TOKEN: ${RESTAURANT_INTERNAL_TOKEN:?Set RESTAURANT_INTERNAL_TOKEN in v2/.env}
+      MENU_INTERNAL_TOKEN: ${MENU_INTERNAL_TOKEN:?Set MENU_INTERNAL_TOKEN in v2/.env}
+
+  menu:
+    <<: *api-service
+    command: ["sh", "-c", "node scripts/migrate-service.mjs menu && pnpm --filter @khana/menu start"]
+    environment:
+      <<: *service-env
+      PORT: "3104"
+      MENU_DATABASE_URL: postgres://menu:menu-local-only@postgres:5432/menu
+      MENU_INTERNAL_TOKEN: ${MENU_INTERNAL_TOKEN:?Set MENU_INTERNAL_TOKEN in v2/.env}
+      RESTAURANT_INTERNAL_TOKEN: ${RESTAURANT_INTERNAL_TOKEN:?Set RESTAURANT_INTERNAL_TOKEN in v2/.env}
+
+  order:
+    <<: *api-service
+    command: ["sh", "-c", "node scripts/migrate-service.mjs order && pnpm --filter @khana/order start"]
+    environment:
+      <<: *service-env
+      PORT: "3105"
+      ORDER_DATABASE_URL: postgres://order:order-local-only@postgres:5432/order
+      RESTAURANT_INTERNAL_TOKEN: ${RESTAURANT_INTERNAL_TOKEN:?Set RESTAURANT_INTERNAL_TOKEN in v2/.env}
+      MENU_INTERNAL_TOKEN: ${MENU_INTERNAL_TOKEN:?Set MENU_INTERNAL_TOKEN in v2/.env}
+      PAYMENT_INTERNAL_TOKEN: ${PAYMENT_INTERNAL_TOKEN:?Set PAYMENT_INTERNAL_TOKEN in v2/.env}
+      INTERNAL_CUSTOMER_TOKEN: ${INTERNAL_CUSTOMER_TOKEN:?Set INTERNAL_CUSTOMER_TOKEN in v2/.env}
+      ORDER_INTERNAL_TOKEN: ${ORDER_INTERNAL_TOKEN:?Set ORDER_INTERNAL_TOKEN in v2/.env}
+      DELIVERY_INTERNAL_TOKEN: ${DELIVERY_INTERNAL_TOKEN:?Set DELIVERY_INTERNAL_TOKEN in v2/.env}
+      DELIVERY_FEE_PAISE: ${DELIVERY_FEE_PAISE:?Set DELIVERY_FEE_PAISE in v2/.env}
+      SERVICE_FEE_PAISE: ${SERVICE_FEE_PAISE:?Set SERVICE_FEE_PAISE in v2/.env}
+
+  customer:
+    <<: *api-service
+    command: ["sh", "-c", "node scripts/migrate-service.mjs customer && pnpm --filter @khana/customer start"]
+    environment:
+      <<: *service-env
+      PORT: "3106"
+      CUSTOMER_DATABASE_URL: postgres://customer:customer-local-only@postgres:5432/customer
+      INTERNAL_CUSTOMER_TOKEN: ${INTERNAL_CUSTOMER_TOKEN:?Set INTERNAL_CUSTOMER_TOKEN in v2/.env}
+      PHONE_ENCRYPTION_KEY_HEX: ${PHONE_ENCRYPTION_KEY_HEX:?Set PHONE_ENCRYPTION_KEY_HEX in v2/.env}
+
+  review:
+    <<: *api-service
+    command: ["sh", "-c", "node scripts/migrate-service.mjs review && pnpm --filter @khana/review start"]
+    environment:
+      <<: *service-env
+      PORT: "3107"
+      REVIEW_DATABASE_URL: postgres://review:review-local-only@postgres:5432/review
+      ORDER_INTERNAL_TOKEN: ${ORDER_INTERNAL_TOKEN:?Set ORDER_INTERNAL_TOKEN in v2/.env}
+      REVIEW_INTERNAL_TOKEN: ${REVIEW_INTERNAL_TOKEN:?Set REVIEW_INTERNAL_TOKEN in v2/.env}
+
+  payment:
+    <<: *api-service
+    command: ["sh", "-c", "node scripts/migrate-service.mjs payment && pnpm --filter @khana/payment start"]
+    environment:
+      <<: *service-env
+      PORT: "3108"
+      PAYMENT_DATABASE_URL: postgres://payment:payment-local-only@postgres:5432/payment
+      COD_CUSTODY_POLICY: ${COD_CUSTODY_POLICY:?Set COD_CUSTODY_POLICY in v2/.env}
+      COD_CUSTODY_LIMIT_PAISE: ${COD_CUSTODY_LIMIT_PAISE:?Set COD_CUSTODY_LIMIT_PAISE in v2/.env}
+      PLATFORM_COMMISSION_BPS: ${PLATFORM_COMMISSION_BPS:?Set PLATFORM_COMMISSION_BPS in v2/.env}
+      COD_REMITTANCE_VERIFIER_SUBJECTS: ${COD_REMITTANCE_VERIFIER_SUBJECTS:-}
+      PAYMENT_INTERNAL_TOKEN: ${PAYMENT_INTERNAL_TOKEN:?Set PAYMENT_INTERNAL_TOKEN in v2/.env}
+      RESTAURANT_INTERNAL_TOKEN: ${RESTAURANT_INTERNAL_TOKEN:?Set RESTAURANT_INTERNAL_TOKEN in v2/.env}
+
+  delivery:
+    <<: *api-service
+    command: ["sh", "-c", "node scripts/migrate-service.mjs delivery && pnpm --filter @khana/delivery start"]
+    environment:
+      <<: *service-env
+      PORT: "3109"
+      DELIVERY_DATABASE_URL: postgres://delivery:delivery-local-only@postgres:5432/delivery
+      PAYMENT_INTERNAL_TOKEN: ${PAYMENT_INTERNAL_TOKEN:?Set PAYMENT_INTERNAL_TOKEN in v2/.env}
+      DELIVERY_INTERNAL_TOKEN: ${DELIVERY_INTERNAL_TOKEN:?Set DELIVERY_INTERNAL_TOKEN in v2/.env}
+
+  notification:
+    <<: *api-service
+    command: ["sh", "-c", "node scripts/migrate-service.mjs notification && pnpm --filter @khana/notification start"]
+    environment:
+      <<: *service-env
+      PORT: "3110"
+      NOTIFICATION_DATABASE_URL: postgres://notification:notification-local-only@postgres:5432/notification
+
+  analytics:
+    <<: *api-service
+    command: ["sh", "-c", "node scripts/migrate-service.mjs analytics && pnpm --filter @khana/analytics start"]
+    environment:
+      <<: *service-env
+      PORT: "3111"
+      ANALYTICS_DATABASE_URL: postgres://analytics:analytics-local-only@postgres:5432/analytics
+      ANALYTICS_INTERNAL_TOKEN: ${ANALYTICS_INTERNAL_TOKEN:?Set ANALYTICS_INTERNAL_TOKEN in v2/.env}
+
+  admin-web:
+    profiles: [apps]
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/service.Dockerfile
+    command: ["sh", "-c", "pnpm --filter @khana/admin-web build && pnpm --filter @khana/admin-web start"]
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3200"
+      HOSTNAME: 0.0.0.0
+    ports: ["127.0.0.1:3200:3200"]
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

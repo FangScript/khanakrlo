@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.khanakarlo.local/events/cod.remittance-verified.v1.schema.json",
+  "title": "COD remittance verified",
+  "allOf": [
+    { "$ref": "./envelope.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "cod.remittance_verified" },
+        "version": { "const": 1 },
+        "payload": {
+          "type": "object",
+          "required": ["remittanceId", "riderId", "amountPaisa", "verifiedBy"],
+          "properties": {
+            "remittanceId": { "type": "string", "format": "uuid" },
+            "riderId": { "type": "string", "format": "uuid" },
+            "amountPaisa": { "type": "integer", "minimum": 1 },
+            "verifiedBy": { "type": "string", "format": "uuid" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

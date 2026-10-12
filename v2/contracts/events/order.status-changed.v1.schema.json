@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.khanakarlo.local/events/order.status-changed.v1.schema.json",
+  "title": "Order status changed event v1",
+  "allOf": [
+    { "$ref": "envelope.schema.json" },
+    { "type": "object", "properties": {
+      "type": { "const": "order.status_changed" },
+      "version": { "const": 1 },
+      "producer": { "const": "order" },
+      "payload": { "type": "object", "required": ["orderId", "fromStatus", "toStatus", "actorId", "outletId", "customerId"], "properties": {
+        "orderId": { "type": "string", "format": "uuid" },
+        "fromStatus": { "type": "string" },
+        "toStatus": { "type": "string" },
+        "actorId": { "type": "string", "format": "uuid" },
+        "outletId": { "type": "string", "format": "uuid" },
+        "customerId": { "type": "string", "format": "uuid" }
+      }, "additionalProperties": false }
+    } }
+  ]
+}

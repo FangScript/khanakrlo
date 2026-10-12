@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.khanakarlo.local/events/payment.commission-policy-updated.v1.schema.json",
+  "title": "Merchant commission policy updated event v1",
+  "allOf": [
+    { "$ref": "envelope.schema.json" },
+    { "type": "object", "properties": {
+      "type": { "const": "payment.commission_policy_updated" },
+      "version": { "const": 1 },
+      "producer": { "const": "payment" },
+      "payload": { "type": "object", "required": ["outletId", "rateBps", "updatedBy"], "properties": {
+        "outletId": { "type": "string", "format": "uuid" },
+        "rateBps": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "updatedBy": { "type": "string", "format": "uuid" }
+      }, "additionalProperties": false }
+    } }
+  ]
+}

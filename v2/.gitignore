@@ -1,0 +1,14 @@
+node_modules/
+.env
+!.env.example
+dist/
+coverage/
+.next/
+.gradle/
+build/
+local.properties
+*.jks
+*.keystore
+.expo/
+clients/mobile/android/
+clients/mobile/ios/

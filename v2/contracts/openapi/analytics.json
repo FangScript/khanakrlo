@@ -1,0 +1,24 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Analytics service API", "version": "1.0.0", "description": "Event-fed operational counts. Payloads and customer contact data are not retained." },
+  "servers": [{ "url": "/v1/analytics", "description": "API gateway" }],
+  "paths": {
+    "/reports/event-counts": {
+      "get": {
+        "operationId": "getEventCounts",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "start", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } },
+          { "name": "end", "in": "query", "required": false, "schema": { "type": "string", "format": "date" } }
+        ],
+        "responses": {
+          "200": { "description": "Daily event counts grouped by event name and producer, limited to a 90-day range" },
+          "400": { "description": "Invalid or oversized date range" },
+          "401": { "description": "Valid session required" },
+          "403": { "description": "Staff role required" }
+        }
+      }
+    }
+  },
+  "components": { "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" } } }
+}

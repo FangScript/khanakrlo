@@ -1,0 +1,23 @@
+{
+  "dependencies": {
+    "express": "^4.22.1",
+    "tsx": "^4.21.0",
+    "@khana/service-kit": "workspace:*"
+  },
+  "type": "module",
+  "name": "@khana/restaurant",
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "vitest": "^2.1.9",
+    "@types/node": "^22.19.3"
+  },
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "lint": "eslint src",
+    "check": "tsc --noEmit -p tsconfig.json"
+  }
+}

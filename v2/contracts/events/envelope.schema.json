@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.khanakarlo.local/events/envelope.schema.json",
+  "title": "Khana KarLo domain event envelope",
+  "type": "object",
+  "required": ["eventId", "type", "version", "occurredAt", "producer", "aggregateId", "payload"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "type": { "type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" },
+    "version": { "type": "integer", "minimum": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string", "format": "uuid" },
+    "producer": { "type": "string", "minLength": 1 },
+    "aggregateId": { "type": "string", "format": "uuid" },
+    "payload": { "type": "object" }
+  },
+  "additionalProperties": false
+}

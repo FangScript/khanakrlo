@@ -1,0 +1,14 @@
+{
+  "openapi":"3.1.0",
+  "info":{"title":"Admin operations API","version":"1.0.0","description":"Desktop-only, allowlisted staff audit reporting."},
+  "servers":[{"url":"/v1/admin","description":"API gateway"}],
+  "paths":{
+    "/mfa/enroll":{"post":{"operationId":"enrollAdminMfa","security":[{"bearerAuth":[]}],"responses":{"201":{"description":"One-time TOTP enrollment secret and authenticator URI"},"409":{"description":"MFA is already enrolled"}}}},
+    "/mfa/verify":{"post":{"operationId":"verifyAdminMfa","security":[{"bearerAuth":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["code"],"properties":{"code":{"type":"string","pattern":"^[0-9]{6}$"}},"additionalProperties":false}}}},"responses":{"200":{"description":"Short-lived Admin MFA session token"},"401":{"description":"Invalid authenticator code"},"429":{"description":"MFA verification temporarily locked"}}}},
+    "/reviews/queue":{"get":{"operationId":"listReviewModerationQueue","security":[{"bearerAuth":[],"adminMfa":[]}],"responses":{"200":{"description":"Pending review moderation queue"},"403":{"description":"Staff session required"},"428":{"description":"Admin MFA required"}}}},
+    "/reviews/{reviewId}/moderation":{"post":{"operationId":"moderateReview","security":[{"bearerAuth":[],"adminMfa":[]}],"parameters":[{"name":"reviewId","in":"path","required":true,"schema":{"type":"string","format":"uuid"}}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["action"],"properties":{"action":{"enum":["published","hidden"]}},"additionalProperties":false}}}},"responses":{"200":{"description":"Moderation action recorded by Review service"}}}},
+    "/reports/event-counts":{"get":{"operationId":"getEventCountReport","security":[{"bearerAuth":[],"adminMfa":[]}],"parameters":[{"name":"start","in":"query","schema":{"type":"string","format":"date"}},{"name":"end","in":"query","schema":{"type":"string","format":"date"}}],"responses":{"200":{"description":"Event count report provided by Analytics service"},"400":{"description":"Date range is invalid or exceeds 90 days"}}}},
+    "/audit/events":{"get":{"operationId":"listAuditEvents","security":[{"bearerAuth":[],"adminMfa":[]}],"parameters":[{"name":"start","in":"query","schema":{"type":"string","format":"date"}},{"name":"end","in":"query","schema":{"type":"string","format":"date"}}],"responses":{"200":{"description":"Append-only metadata projection of domain events"},"400":{"description":"Date range is invalid or exceeds 31 days"},"403":{"description":"Staff session required"}}}}
+  },
+  "components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer","bearerFormat":"JWT"},"adminMfa":{"type":"apiKey","in":"header","name":"X-Admin-Mfa-Token"}}}
+}
