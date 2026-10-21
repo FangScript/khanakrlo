@@ -7,4 +7,6 @@ coverage/
 .cache/
 .expo/
 *.tsbuildinfo
+expo-env.d.ts
+expo-qr-code.png
 
