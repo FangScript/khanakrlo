@@ -5,6 +5,11 @@ services:
     ports: ["127.0.0.1:${GATEWAY_PORT:-8180}:8080"]
     environment:
       IDENTITY_ORIGIN: http://identity:8081
+      CATALOGUE_ORIGIN: http://catalogue:8082
+  catalogue:
+    build: ./services/catalogue
+    environment:
+      CATALOGUE_FILE: ${CATALOGUE_FILE:-}
   identity:
     build: ./services/identity
     environment:

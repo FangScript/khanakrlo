@@ -2,6 +2,19 @@ import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 
 createServer(async (req, res) => {
+  const url = new URL(req.url, 'http://gateway');
+  if (req.method === 'GET' && url.pathname === '/catalogue/restaurants') {
+    try {
+      const target = new URL('/restaurants', process.env.CATALOGUE_ORIGIN);
+      target.search = url.search;
+      const upstream = await fetch(target, { signal: AbortSignal.timeout(2500) });
+      const body = await upstream.text();
+      res.writeHead(upstream.status, { 'content-type': 'application/json' }).end(body);
+    } catch {
+      res.writeHead(503).end();
+    }
+    return;
+  }
   if (req.method !== 'GET' || req.url !== '/identity/ready') {
     res.writeHead(404).end();
     return;
@@ -17,4 +30,4 @@ createServer(async (req, res) => {
   console.info(JSON.stringify({ id, ready }));
   res.writeHead(ready ? 200 : 503, { 'x-request-id': id, 'content-type': 'application/json' });
   res.end(JSON.stringify({ ready }));
-}).listen(8080);
+}).listen(Number(process.env.PORT || 8080));

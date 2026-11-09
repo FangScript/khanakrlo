@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
+import Shopping from './Shopping';
 import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import Storage from '@react-native-async-storage/async-storage';
@@ -17,7 +18,6 @@ function CustomerHome() {
   const [locating, setLocating] = useState(false);
   const request = useRef(0);
   const [street, setStreet] = useState('');
-  const [query, setQuery] = useState('');
   const [message, setMessage] = useState('');
   const [loaded, setLoaded] = useState(false);
 
@@ -110,16 +110,7 @@ function CustomerHome() {
       <Text style={styles.body}>Sign in and account creation will be available when accounts open.</Text>
       <Pressable accessibilityRole="button" disabled={!loaded} onPress={editAddress} style={styles.action}><Text style={styles.label}>Choose delivery location</Text></Pressable>
       <Pressable accessibilityRole="button" onPress={() => setWelcome(false)} style={styles.chip}><Text style={styles.label}>Browse as guest</Text></Pressable>
-    </View> : <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Pressable accessibilityRole="button" disabled={!loaded} onPress={editAddress} style={styles.address}>
-        <Text style={styles.label}>Deliver to</Text>
-        <Text style={styles.title}>{address ? address.street + ', ' + address.city : 'Choose delivery address'}</Text>
-      </Pressable>
-      <TextInput style={styles.field} accessibilityLabel="Search restaurants or dishes" placeholder="Search restaurants or dishes" placeholderTextColor="#65645A" value={query} onChangeText={setQuery} returnKeyType="search" />
-      <Text style={styles.title}>{query.trim() ? 'Search results' : 'Restaurants near you'}</Text>
-      <Text style={styles.body}>{address ? 'Restaurant listings are currently unavailable.' : 'Choose an address to see who delivers to you.'}</Text>
-      {!editing && !!message && <Text accessibilityRole="alert">{message}</Text>}
-    </ScrollView>}
+    </View> : <Shopping address={address} editAddress={editAddress} />}
     <Modal visible={editing} animationType="slide" onRequestClose={closeEditor}>
       <SafeAreaView style={styles.page}><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">

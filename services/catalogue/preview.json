@@ -1,0 +1,104 @@
+[
+  {
+    "id": "isb-1",
+    "name": "Mehran Kitchen",
+    "cuisine": "Biryani & rice",
+    "city": "Islamabad",
+    "open": true,
+    "menu": [
+      {
+        "id": "biryani",
+        "name": "Chicken biryani",
+        "photo": "biryani",
+        "price": 60000,
+        "available": true,
+        "addon": {
+          "name": "Extra raita",
+          "price": 5000
+        }
+      },
+      {
+        "id": "wrap",
+        "name": "Chicken wrap",
+        "photo": "wrap",
+        "price": 42000,
+        "available": true,
+        "addon": {
+          "name": "Extra raita",
+          "price": 5000
+        }
+      }
+    ]
+  },
+  {
+    "id": "isb-2",
+    "name": "Karahi Kitchen",
+    "cuisine": "Pakistani",
+    "city": "Islamabad",
+    "open": true,
+    "menu": [
+      {
+        "id": "karahi",
+        "name": "Chicken karahi",
+        "photo": "karahi",
+        "price": 90000,
+        "available": true,
+        "addon": {
+          "name": "Extra raita",
+          "price": 5000
+        }
+      }
+    ]
+  },
+  {
+    "id": "rwp-1",
+    "name": "Mehran Kitchen",
+    "cuisine": "Biryani & rice",
+    "city": "Rawalpindi",
+    "open": true,
+    "menu": [
+      {
+        "id": "biryani",
+        "name": "Chicken biryani",
+        "photo": "biryani",
+        "price": 60000,
+        "available": true,
+        "addon": {
+          "name": "Extra raita",
+          "price": 5000
+        }
+      },
+      {
+        "id": "wrap",
+        "name": "Chicken wrap",
+        "photo": "wrap",
+        "price": 42000,
+        "available": true,
+        "addon": {
+          "name": "Extra raita",
+          "price": 5000
+        }
+      }
+    ]
+  },
+  {
+    "id": "rwp-2",
+    "name": "Karahi Kitchen",
+    "cuisine": "Pakistani",
+    "city": "Rawalpindi",
+    "open": true,
+    "menu": [
+      {
+        "id": "karahi",
+        "name": "Chicken karahi",
+        "photo": "karahi",
+        "price": 90000,
+        "available": true,
+        "addon": {
+          "name": "Extra raita",
+          "price": 5000
+        }
+      }
+    ]
+  }
+]
