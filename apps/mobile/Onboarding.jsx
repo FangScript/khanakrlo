@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BackHandler, Image, KeyboardAvoidingView, NativeModules, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
+import { BackHandler, Image, KeyboardAvoidingView, NativeModules, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as NativeStorage from 'expo-secure-store';
 import Splash from './Splash';
@@ -34,7 +34,9 @@ function Action({label, onPress, orange, disabled, icon}) {
 }
 function Artwork({name, style}) {
   const ratios = {'grill': 1.6104, 'welcome': 1.2195, 'route': 3.038, 'identity': 1.1947};
-  return <Image accessible={false} source={art[name]} resizeMode="contain" style={[{width:'100%',aspectRatio:ratios[name]},style]}/>;
+  const {width: viewport} = useWindowDimensions();
+  const width = Math.min(viewport - 42, 460) * (name === 'identity' ? 0.67 : 1);
+  return <Image accessible={false} source={art[name]} resizeMode="contain" style={[{width,height:width / ratios[name],alignSelf:'center'},style]}/>;
 }
 function Flow() {
   const [page, go] = useState('splash');
@@ -102,7 +104,7 @@ function Flow() {
       {page==='welcome' && <><Text accessibilityRole="header" style={styles.brand}>Welcome</Text><Artwork name="welcome"/><View style={styles.actions}><Action orange icon="register" label="Create account" onPress={()=>open('register')}/><Action icon="user" label="Sign in" onPress={()=>open('login')}/><Action icon="compass" label="Browse as guest" onPress={()=>open('guest')}/></View></>}
       {auth && <><Pressable accessibilityRole="button" accessibilityLabel="Back" disabled={busy} onPress={()=>open('welcome')} style={styles.back}><Icon name="back"/></Pressable>
         <Text accessibilityRole="header" style={styles.heading}>{page==='register'?'Create account':'Sign in'}</Text>
-        <Artwork name="identity" style={{width:'67%',alignSelf:'center'}}/>
+        <Artwork name="identity"/>
         <Text style={styles.label}>Email address</Text><View style={styles.password}><Icon name="email"/><TextInput accessibilityLabel="Email address" style={styles.passwordInput} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" placeholder="name@example.com"/></View>
         <Text style={styles.label}>Password</Text><View style={styles.password}><Icon name="lock"/><TextInput accessibilityLabel="Password" secureTextEntry={!visible} value={password} onChangeText={setPassword} editable={!busy} onSubmitEditing={submit} autoCapitalize="none" autoComplete={page==='register'?'new-password':'current-password'} style={styles.passwordInput}/><Pressable accessibilityRole="button" accessibilityLabel={visible ? "Hide password" : "Show password"} onPress={()=>showPassword(!visible)} style={{padding:12}}><Icon name={visible ? "eyeOff" : "eye"}/></Pressable></View>
         <Action orange label={busy?'Please wait…':page==='register'?'Create account':'Sign in'} disabled={busy} onPress={submit}/></>}
