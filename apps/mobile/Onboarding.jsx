@@ -57,11 +57,12 @@ function IntroPhoto() {
 }
 function Artwork({name, style}) {
   const ratios = {'grill': 1.6104, 'welcome': 1.2195, 'route': 3.038, 'identity': 1.1947};
-  const {width: viewport} = useWindowDimensions();
-  const width = Math.min(viewport - (name === 'welcome' ? 23 : 42), 460) * (name === 'identity' ? 0.67 : 1);
+  const {width: viewport, height} = useWindowDimensions();
+  const width = Math.min(viewport - (name === 'welcome' ? 36 : 42), height * 0.40 * ratios[name], 460) * (name === 'identity' ? 0.67 : 1);
   return <Image accessible={false} source={art[name]} resizeMode="contain" style={[{width,height:width / ratios[name],alignSelf:'center'},style]}/>;
 }
 function Flow() {
+  const {height} = useWindowDimensions();
   const [page, go] = useState('splash');
   const [email, setEmail] = useState('');
   const [password,setPassword] = useState('');
@@ -122,10 +123,11 @@ function Flow() {
   const auth=page==='register'||page==='login';
   return <View style={[styles.frame, (page==='intro'||page==='welcome') && styles.clayFrame]}><StatusBar barStyle="dark-content"/>
     <SafeAreaView style={styles.safe}><KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS==='ios'?'padding':undefined}>
-      <ScrollView key={page} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.page, page==='intro' && styles.introPage, page==='welcome' && styles.welcomePage]}>
+      {auth && <View style={styles.backBar}><Pressable accessibilityRole="button" accessibilityLabel="Back" disabled={busy} onPress={()=>open('welcome')} style={styles.back}><Icon name="back"/></Pressable></View>}
+      <ScrollView key={page} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.page, page==='intro' && styles.introPage, page==='welcome' && [styles.welcomePage,{paddingTop:Math.min(62, Math.max(12, height * 0.07))}], auth && styles.authPage]}>
       {page==='intro' && <><IntroPhoto/><Text style={styles.brand}>Khana Krlo</Text><Text style={styles.summary}>Order from restaurants across Rawalpindi and Islamabad, and follow your meal to your door.</Text><Artwork name="route"/><Action clay orange icon="arrow" label="Continue" disabled={busy} onPress={continueIntro}/></>}
       {page==='welcome' && <><Text accessibilityRole="header" style={[styles.brand,styles.welcomeTitle]}>Welcome</Text><Artwork name="welcome"/><View style={styles.actions}><Action clay orange icon="register" label="Create account" onPress={()=>open('register')}/><Action clay icon="user" label="Sign in" onPress={()=>open('login')}/><Action clay icon="compass" label="Browse as guest" onPress={()=>open('guest')}/></View></>}
-      {auth && <><Pressable accessibilityRole="button" accessibilityLabel="Back" disabled={busy} onPress={()=>open('welcome')} style={styles.back}><Icon name="back"/></Pressable>
+      {auth && <>
         <Text accessibilityRole="header" style={styles.heading}>{page==='register'?'Create account':'Sign in'}</Text>
         <Artwork name="identity"/>
         <Text style={styles.label}>Email address</Text><View style={styles.password}><Icon name="email"/><TextInput accessibilityLabel="Email address" style={styles.passwordInput} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" placeholder="name@example.com"/></View>
@@ -147,7 +149,9 @@ const styles=StyleSheet.create({
  hero:{borderRadius:26},summary:{fontSize:19,lineHeight:26,textAlign:'center',color:'#5C5D4F',paddingHorizontal:12},
  clayFrame:{borderWidth:StyleSheet.hairlineWidth,borderRadius:0,borderColor:'#bdce8a'},
  introPage:{paddingHorizontal:16,paddingVertical:12,justifyContent:'space-evenly',gap:8},
- welcomePage:{paddingHorizontal:16,paddingVertical:26,justifyContent:'center',gap:16},
+ welcomePage:{paddingHorizontal:16,paddingBottom:26,justifyContent:'flex-start',gap:16},
+ authPage:{width:'100%',maxWidth:560,alignSelf:'center',justifyContent:'flex-start',paddingTop:6},
+ backBar:{width:'100%',maxWidth:560,alignSelf:'center',paddingHorizontal:20,paddingTop:6},
  welcomeTitle:{fontSize:46,fontWeight:'800'},clayButton:{minHeight:66,borderRadius:34},clayLabel:{fontSize:24,fontWeight:'700'},leadingIcon:{position:'absolute',left:22},pillColor:{overflow:'hidden',borderRadius:34},
  actions:{gap:16},button:{minHeight:55,flexDirection:'row',gap:10,paddingHorizontal:14,justifyContent:'center',alignItems:'center',borderRadius:28,backgroundColor:'#DDE99A',boxShadow:'inset 0px 3px 5px #F8FFD4, inset 0px -3px 4px #AFBD70, 0px 3px 5px #785A312B'},
  orange:{backgroundColor:'#F77B10',boxShadow:'inset 0px 3px 5px #FFBD68, inset 0px -3px 4px #BD560B, 0px 3px 6px #784D3238'},
