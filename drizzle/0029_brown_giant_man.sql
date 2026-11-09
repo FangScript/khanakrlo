@@ -1,1 +1,0 @@
-ALTER TABLE `delivery_route_snapshots` MODIFY COLUMN `responseMetadataJson` varchar(2000) NOT NULL DEFAULT '{}';
