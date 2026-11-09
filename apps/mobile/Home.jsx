@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import * as Location from 'expo-location';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import Storage from '@react-native-async-storage/async-storage';
@@ -9,7 +10,11 @@ const cities = ['Rawalpindi', 'Islamabad'];
 function CustomerHome() {
   const [address, setAddress] = useState(null);
   const [editing, setEditing] = useState(false);
-  const [city, setCity] = useState(cities[0]);
+  const [city, setCity] = useState('');
+  const [welcome, setWelcome] = useState(true);
+  const [pin, setPin] = useState(null);
+  const [locating, setLocating] = useState(false);
+  const request = useRef(0);
   const [street, setStreet] = useState('');
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState('');
@@ -18,24 +23,64 @@ function CustomerHome() {
   useEffect(() => {
     Storage.getItem(addressKey).then(raw => {
       const saved = raw && JSON.parse(raw);
-      if (saved && cities.includes(saved.city) && typeof saved.street === 'string') setAddress(saved);
+      if (saved && cities.includes(saved.city) && typeof saved.street === 'string') {
+        setAddress(saved);
+        setWelcome(false);
+      }
     }).catch(() => setMessage('Your saved address could not be loaded.')).finally(() => setLoaded(true));
   }, []);
 
   function editAddress() {
-    setCity(address?.city ?? cities[0]);
+    setCity(address?.city ?? '');
+    setPin(address?.pin ?? null);
     setStreet(address?.street ?? '');
     setMessage('');
     setEditing(true);
   }
 
+  function closeEditor() {
+    request.current++;
+    setLocating(false);
+    setEditing(false);
+  }
+
+  async function locate() {
+    const ticket = ++request.current;
+    setLocating(true);
+    setMessage('');
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (ticket !== request.current) return;
+      if (!permission.granted) {
+        setMessage('Enter your address manually, or allow location in Settings.');
+        return;
+      }
+      const { coords } = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      if (ticket !== request.current) return;
+      const point = { latitude: coords.latitude, longitude: coords.longitude };
+      setPin(point);
+      setCity('');
+      setStreet('');
+      const [place] = await Location.reverseGeocodeAsync(point);
+      if (ticket !== request.current) return;
+      setCity(cities.find(item => item.toLowerCase() === place?.city?.toLowerCase()) ?? '');
+      setStreet([place?.streetNumber, place?.street].filter(Boolean).join(' ') || place?.district || '');
+      setMessage('Check your city and street before saving this pin.');
+    } catch {
+      if (ticket === request.current) setMessage('Could not read the full address. Check the city and street or enter them manually.');
+    } finally {
+      if (ticket === request.current) setLocating(false);
+    }
+  }
+
   async function saveAddress() {
-    const next = { city, street: street.trim() };
-    if (!next.street) return;
+    const next = { city, street: street.trim(), pin };
+    if (!next.street || !cities.includes(city) || locating) return;
     try {
       await Storage.setItem(addressKey, JSON.stringify(next));
       setAddress(next);
-      setEditing(false);
+      closeEditor();
+      setWelcome(false);
       setMessage('');
     } catch {
       setMessage('Could not save your address. Try again.');
@@ -44,7 +89,11 @@ function CustomerHome() {
 
   return <SafeAreaView style={styles.page}>
     <StatusBar barStyle="dark-content" />
-    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    {welcome ? <View style={[styles.content, { flex: 1, justifyContent: 'center' }]}>
+      <Text accessibilityRole="header" style={styles.title}>Welcome to Khana Krlo</Text>
+      <Pressable accessibilityRole="button" disabled={!loaded} onPress={editAddress} style={styles.action}><Text style={styles.label}>Choose delivery location</Text></Pressable>
+      <Pressable accessibilityRole="button" onPress={() => setWelcome(false)} style={styles.chip}><Text style={styles.label}>Browse as guest</Text></Pressable>
+    </View> : <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Pressable accessibilityRole="button" disabled={!loaded} onPress={editAddress} style={styles.address}>
         <Text style={styles.label}>Deliver to</Text>
         <Text style={styles.title}>{address ? address.street + ', ' + address.city : 'Choose delivery address'}</Text>
@@ -53,17 +102,19 @@ function CustomerHome() {
       <Text style={styles.title}>{query.trim() ? 'Search results' : 'Restaurants near you'}</Text>
       <Text style={styles.body}>{address ? 'Restaurant listings are currently unavailable.' : 'Choose an address to see who delivers to you.'}</Text>
       {!editing && !!message && <Text accessibilityRole="alert">{message}</Text>}
-    </ScrollView>
-    <Modal visible={editing} animationType="slide" onRequestClose={() => setEditing(false)}>
+    </ScrollView>}
+    <Modal visible={editing} animationType="slide" onRequestClose={closeEditor}>
       <SafeAreaView style={styles.page}><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text accessibilityRole="header" style={styles.title}>Delivery address</Text>
-          <View style={styles.row}>{cities.map(item => <Pressable key={item} accessibilityRole="radio" accessibilityState={{ checked: city === item }} onPress={() => setCity(item)} style={[styles.chip, city === item && styles.selected]}>
+          <Pressable accessibilityRole="button" disabled={locating} onPress={locate} style={styles.selectedButton}><Text style={styles.label}>{locating ? 'Finding your location…' : 'Use my current location'}</Text></Pressable>
+          {pin && <Text style={styles.body}>Delivery pin · {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}</Text>}
+          <View style={styles.row}>{cities.map(item => <Pressable key={item} disabled={locating} accessibilityRole="radio" accessibilityState={{ checked: city === item }} onPress={() => { if (city && city !== item) setPin(null); setCity(item); }} style={[styles.chip, city === item && styles.selected]}>
             <Text style={styles.label}>{item}</Text></Pressable>)}</View>
-          <TextInput accessibilityLabel="Street and area" placeholder="Street and area" value={street} onChangeText={setStreet} style={styles.field} />
+          <TextInput editable={!locating} accessibilityLabel="Street and area" placeholder="Street and area" value={street} onChangeText={setStreet} style={styles.field} />
           {!!message && <Text accessibilityRole="alert">{message}</Text>}
-          <Pressable accessibilityRole="button" disabled={!street.trim()} onPress={saveAddress} style={[styles.action, !street.trim() && styles.disabled]}><Text style={styles.label}>Save address</Text></Pressable>
-          <Pressable accessibilityRole="button" onPress={() => setEditing(false)} style={styles.chip}><Text style={styles.label}>Cancel</Text></Pressable>
+          <Pressable accessibilityRole="button" disabled={!street.trim() || !city || locating} onPress={saveAddress} style={[styles.action, (!street.trim() || !city || locating) && styles.disabled]}><Text style={styles.label}>Save address</Text></Pressable>
+          <Pressable accessibilityRole="button" onPress={closeEditor} style={styles.chip}><Text style={styles.label}>Cancel</Text></Pressable>
         </ScrollView>
       </KeyboardAvoidingView></SafeAreaView>
     </Modal>
@@ -85,6 +136,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   chip: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 16, borderRadius: 18, backgroundColor: '#F1EBDF' },
   selected: { backgroundColor: '#DCEAAE' },
+  selectedButton: { minHeight: 52, justifyContent: 'center', paddingHorizontal: 16, borderRadius: 20, backgroundColor: '#DCEAAE' },
   action: { minHeight: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFA45C', borderRadius: 20, boxShadow: '0 4px 8px #AD652633, inset 1px 2px 3px #FFCF97' },
   disabled: { opacity: 0.45 },
 });
