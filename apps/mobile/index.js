@@ -1,5 +1,5 @@
 import { registerRootComponent } from 'expo';
 
-import Splash from './Splash';
+import App from './Onboarding';
 
-registerRootComponent(Splash);
+registerRootComponent(App);
