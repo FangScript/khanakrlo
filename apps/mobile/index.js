@@ -1,3 +1,7 @@
 import { registerRootComponent } from 'expo';
-import Home from './Home';
-registerRootComponent(Home);
+
+function App() {
+  return null;
+}
+
+registerRootComponent(App);
