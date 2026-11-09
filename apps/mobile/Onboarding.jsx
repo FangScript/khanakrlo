@@ -6,7 +6,7 @@ import Icon from './Icons';
 import * as Location from 'expo-location';
 
 const art = {
-  chef: require('./art/chef.png'), grill: require('./art/grill.png'),
+  chef: require('./art/chef.png'), grill: require('./art/grill.jpg'),
   route: require('./art/route.png'), welcome: require('./art/welcome.png'),
   identity: require('./art/identity.png'),
 };
@@ -25,8 +25,9 @@ function Action({label, onPress, orange, disabled, icon}) {
     <Text style={[styles.buttonText,orange && styles.white]}>{label}</Text>
   </Pressable>;
 }
-function Artwork({name, ratio, style}) {
-  return <Image accessible={false} source={art[name]} resizeMode="contain" style={[{width:'100%',aspectRatio:ratio},style]}/>;
+function Artwork({name, style}) {
+  const {width, height} = Image.resolveAssetSource(art[name]);
+  return <Image accessible={false} source={art[name]} resizeMode="contain" style={[{width:'100%',aspectRatio:width / height},style]}/>;
 }
 function Flow() {
   const [page, go] = useState('splash');
@@ -88,12 +89,12 @@ function Flow() {
   return <View style={styles.frame}><StatusBar barStyle="dark-content"/>
     <SafeAreaView style={styles.safe}><KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS==='ios'?'padding':undefined}>
       <ScrollView key={page} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.page,page==='splash' && styles.center]}>
-      {page==='splash' && <><View style={styles.corner}/><Artwork name="chef" ratio={211/223} style={{width:170}}/><Text accessibilityRole="header" style={styles.brand}>Khana Krlo</Text></>}
-      {page==='intro' && <><Artwork name="grill" ratio={360/320} style={styles.hero}/><Text style={styles.brand}>Khana Krlo</Text><Text style={styles.summary}>Order from restaurants across Rawalpindi and Islamabad, and follow your meal to your door.</Text><Artwork name="route" ratio={307/96}/><Action orange icon="arrow" label="Continue" disabled={busy} onPress={continueIntro}/></>}
-      {page==='welcome' && <><Text accessibilityRole="header" style={styles.brand}>Welcome</Text><Artwork name="welcome" ratio={348/282}/><View style={styles.actions}><Action orange icon="register" label="Create account" onPress={()=>open('register')}/><Action icon="user" label="Sign in" onPress={()=>open('login')}/><Action icon="compass" label="Browse as guest" onPress={()=>open('guest')}/></View></>}
+      {page==='splash' && <><View style={styles.corner}/><Artwork name="chef" style={{width:170}}/><Text accessibilityRole="header" style={styles.brand}>Khana Krlo</Text></>}
+      {page==='intro' && <><Artwork name="grill" style={styles.hero}/><Text style={styles.brand}>Khana Krlo</Text><Text style={styles.summary}>Order from restaurants across Rawalpindi and Islamabad, and follow your meal to your door.</Text><Artwork name="route"/><Action orange icon="arrow" label="Continue" disabled={busy} onPress={continueIntro}/></>}
+      {page==='welcome' && <><Text accessibilityRole="header" style={styles.brand}>Welcome</Text><Artwork name="welcome"/><View style={styles.actions}><Action orange icon="register" label="Create account" onPress={()=>open('register')}/><Action icon="user" label="Sign in" onPress={()=>open('login')}/><Action icon="compass" label="Browse as guest" onPress={()=>open('guest')}/></View></>}
       {auth && <><Pressable accessibilityRole="button" accessibilityLabel="Back" disabled={busy} onPress={()=>open('welcome')} style={styles.back}><Icon name="back"/></Pressable>
         <Text accessibilityRole="header" style={styles.heading}>{page==='register'?'Create account':'Sign in'}</Text>
-        <Artwork name="identity" ratio={288/231} style={{width:'67%',alignSelf:'center'}}/>
+        <Artwork name="identity" style={{width:'67%',alignSelf:'center'}}/>
         <Text style={styles.label}>Email address</Text><View style={styles.password}><Icon name="email"/><TextInput accessibilityLabel="Email address" style={styles.passwordInput} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" placeholder="name@example.com"/></View>
         <Text style={styles.label}>Password</Text><View style={styles.password}><Icon name="lock"/><TextInput accessibilityLabel="Password" secureTextEntry={!visible} value={password} onChangeText={setPassword} editable={!busy} onSubmitEditing={submit} autoCapitalize="none" autoComplete={page==='register'?'new-password':'current-password'} style={styles.passwordInput}/><Pressable accessibilityRole="button" accessibilityLabel={visible ? "Hide password" : "Show password"} onPress={()=>showPassword(!visible)} style={{padding:12}}><Icon name={visible ? "eyeOff" : "eye"}/></Pressable></View>
         <Action orange label={busy?'Please wait…':page==='register'?'Create account':'Sign in'} disabled={busy} onPress={submit}/></>}
