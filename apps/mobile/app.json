@@ -5,6 +5,6 @@
     "version": "0.1.0",
     "icon": "./brand.png",
     "android": { "package": "pk.khanakrlo.app" },
-    "plugins": [["expo-location", { "locationWhenInUsePermission": "Allow Khana Krlo to find the street and pin for your delivery." }]]
+    "plugins": [["expo-splash-screen", { "backgroundColor": "#FBF0DE", "image": "./art/chef.png", "imageWidth": 180 }]]
   }
 }
