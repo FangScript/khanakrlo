@@ -5,7 +5,7 @@ import { accounts } from './accounts.mjs';
 const database = new pg.Pool({ max: 4, connectionTimeoutMillis: 1200, query_timeout: 1200 });
 database.on('error', () => console.warn('Idle database connection lost'));
 createServer(async (req, res) => {
-  if (['/register','/login','/session','/verify/request','/verify/confirm','/reset/request','/reset/confirm','/close'].includes(req.url)) {
+  if (['/internal/staff','/register','/login','/session','/verify/request','/verify/confirm','/reset/request','/reset/confirm','/close'].includes(req.url)) {
     try { await accounts(req, res, database); }
     catch { res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify({error:'Account service unavailable.'})); }
     return;

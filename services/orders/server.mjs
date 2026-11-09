@@ -28,6 +28,20 @@ export function createOrdersServer(store, config) {
     };
     try {
       const path = new URL(req.url,'http://orders').pathname;
+      if(path==='/internal/dispatch' && req.method==='GET'){
+        if(!matchesSecret(req.headers.authorization,config.operationsKey))throw new OrderError(403,'Access denied.');
+        return reply(200,{orders:store.dispatch()});
+      }
+      const caseRoute=/^\/internal\/cases(?:\/(KK-[0-9A-F]{16}))?$/.exec(path);
+      if(caseRoute){
+        if(!matchesSecret(req.headers.authorization,config.operationsKey))throw new OrderError(403,'Access denied.');
+        if(req.method==='GET')return reply(200,caseRoute[1]?store.caseDetail(caseRoute[1]):{cases:store.cases()});
+        if(req.method==='POST'&&caseRoute[1]){
+          const data=await readBody(req);
+          if(typeof data?.text!=='string'||!data.text.trim()||data.text.length>2000||typeof data.actorId!=='string'||!data.actorId.trim())throw new OrderError(400,'A support actor and message are required.');
+          return reply(201,{message:store.replyToCase(caseRoute[1],data.text.trim(),data.actorId)});
+        }
+      }
       const event = /^\/internal\/orders\/(KK-[0-9A-F]{16})\/events$/.exec(path);
       if (event && req.method === 'POST') {
         if (!matchesSecret(req.headers.authorization,config.operationsKey)) throw new OrderError(403,'Access denied.');
@@ -51,7 +65,19 @@ export function createOrdersServer(store, config) {
       store.usable(owner);
       if (path === '/orders' && req.method === 'GET') return reply(200,{orders:store.list(owner)});
       if (path === '/workspaces' && req.method === 'GET') {
-        return reply(200,{workspaces:[{id:'customer',name:'Customer'},...(account.workspaces||[])]});
+        const workspaces=[{id:'customer',name:'Customer'}];
+        const checks=[['restaurant','Restaurant',config.merchantOrigin],['rider','Rider',config.riderOrigin]];
+        for(const grant of account.workspaces||[]){
+          if(!checks.some(([id,,origin])=>origin&&id===grant.id)&&!workspaces.some(w=>w.id===grant.id))workspaces.push(grant);
+        }
+        const dynamic=await Promise.all(checks.map(async([id,name,origin])=>{
+          if(!origin)return null;
+          const r=await fetch(new URL('/internal/workspace/'+encodeURIComponent(owner),origin),{
+            headers:{authorization:'Bearer '+config.operationsKey,'x-workspace-email':encodeURIComponent(account.email||''),'x-workspace-verified':String(account.emailVerified===true)},signal:AbortSignal.timeout(3000)});
+          if(!r.ok)throw new OrderError(503,'Workspace availability could not be checked.');
+          return (await r.json()).approved?{id,name}:null;
+        }));
+        return reply(200,{workspaces:[...workspaces,...dynamic.filter(Boolean)]});
       }
       if (path === '/notifications' && req.method === 'GET') {
         return reply(200,{notifications:store.notifications(owner)});
@@ -71,6 +97,7 @@ export function createOrdersServer(store, config) {
         }
         const target = new URL('/restaurants',config.catalogueOrigin);
         target.searchParams.set('city',cart.city);
+        if(cart.pin){target.searchParams.set('lat',cart.pin.latitude);target.searchParams.set('lon',cart.pin.longitude);}
         const response = await fetch(target,{signal:AbortSignal.timeout(3000)});
         if (!response.ok) throw new OrderError(503,'The menu is unavailable. Please retry.');
         const {restaurants} = await response.json();

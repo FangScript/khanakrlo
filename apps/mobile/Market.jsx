@@ -15,6 +15,7 @@ import {
   art,
   Brand,
   Button,
+  CatalogueImage,
   categories,
   colors,
   Food,
@@ -87,7 +88,7 @@ function Restaurant({ b, onPress }) {
   return (
     <Tap label={'Open menu for ' + b.name} onPress={onPress}>
       <Surface style={s.restaurant}>
-        <Image source={branchPicture(b)} style={s.front} resizeMode="cover" />
+        <CatalogueImage imageUrl={b.imageUrl} fallback={branchPicture(b)} style={s.front} />
         <View style={ui.fill}>
           <Text style={s.heading}>{b.name}</Text>
           {meta(b)}
@@ -171,7 +172,7 @@ export default function Market({
     setBranches([]);
     setLoading(true);
     setLoadError(false);
-    api('/catalogue/restaurants?city=' + encodeURIComponent(city))
+    api('/catalogue/restaurants?city=' + encodeURIComponent(city) + (pin ? '&lat=' + encodeURIComponent(pin.latitude) + '&lon=' + encodeURIComponent(pin.longitude) : ''))
       .then(({ restaurants }) => {
         if (current) setBranches(restaurants);
       })
@@ -184,7 +185,7 @@ export default function Market({
     return () => {
       current = false;
     };
-  }, [city, attempt, api]);
+  }, [city, attempt, api, pin]);
 
   const selected = useMemo(() => lines.filter((l) => l.city === city), [lines, city]);
   const subtotal = selected.reduce((sum, l) => sum + l.unit * l.qty, 0);
@@ -297,6 +298,7 @@ export default function Market({
       branchId: branch.id,
       dishId: dish.id,
       photo: dish.photo,
+      imageUrl: dish.imageUrl,
       name: dish.name,
       unit,
       qty,
@@ -506,8 +508,9 @@ export default function Market({
           {screen === 'Menu' && branch && (
             <>
               <View style={s.heroWrap}>
-                <Image
-                  source={branch.name.includes('Mehran') ? art.kitchen : branchPicture(branch)}
+                <CatalogueImage
+                  imageUrl={branch.imageUrl}
+                  fallback={branchPicture(branch)}
                   style={s.hero}
                   resizeMode="cover"
                 />
@@ -615,7 +618,7 @@ export default function Market({
                   ?.menu.find((item) => item.id === ids(l).dishId);
                 return (
                   <Surface key={l.key} style={s.cartCard}>
-                    <Food dish={d || { photo: l.photo || ids(l).dishId }} style={s.cartPhoto} />
+                    <Food dish={d || { photo: l.photo || ids(l).dishId, imageUrl: l.imageUrl }} style={s.cartPhoto} />
                     <View style={ui.fill}>
                       <Text style={s.detail}>{l.branch}</Text>
                       <Text style={s.heading}>{l.name}</Text>

@@ -4,6 +4,8 @@ services:
     build: ./services/gateway
     ports: ["${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-8180}:8080"]
     environment:
+      MERCHANT_ORIGIN: http://merchant:8084
+      RIDER_ORIGIN: http://rider:8085
       WEB_ORIGINS: ${WEB_ORIGINS:-}
       ORDERS_ORIGIN: http://orders:8083
       IDENTITY_ORIGIN: http://identity:8081
@@ -11,10 +13,15 @@ services:
   catalogue:
     build: ./services/catalogue
     environment:
+      MERCHANT_ORIGIN: http://merchant:8084
+      ORDER_OPERATIONS_KEY: ${ORDER_OPERATIONS_KEY:-}
       CATALOGUE_FILE: ${CATALOGUE_FILE:-}
   identity:
     build: ./services/identity
     environment:
+      ADMIN_ACCESS_KEY: ${ADMIN_ACCESS_KEY:-}
+      MERCHANT_ORIGIN: http://merchant:8084
+      RIDER_ORIGIN: http://rider:8085
       PGHOST: db
       PGDATABASE: identity
       PGUSER: identity_runtime
@@ -35,11 +42,45 @@ services:
     environment:
       IDENTITY_ORIGIN: http://identity:8081
       CATALOGUE_ORIGIN: http://catalogue:8082
+      MERCHANT_ORIGIN: http://merchant:8084
+      RIDER_ORIGIN: http://rider:8085
       PREVIEW_DELIVERY_PAISA: ${PREVIEW_DELIVERY_PAISA:-}
       ORDER_OPERATIONS_KEY: ${ORDER_OPERATIONS_KEY:-}
       PREVIEW_TAX_BPS: ${PREVIEW_TAX_BPS:-}
       ACCOUNT_ERASURE_KEY: ${ACCOUNT_ERASURE_KEY:-}
     volumes: ["orders-data:/data"]
+  merchant:
+    build: ./services/merchant
+    environment:
+      IDENTITY_ORIGIN: http://identity:8081
+      ORDERS_ORIGIN: http://orders:8083
+      ORDER_OPERATIONS_KEY: ${ORDER_OPERATIONS_KEY:-}
+      RIDER_ORIGIN: http://rider:8085
+      ACCOUNT_ERASURE_KEY: ${ACCOUNT_ERASURE_KEY:-}
+    volumes: ["merchant-data:/data"]
+  rider:
+    build: ./services/rider
+    environment:
+      IDENTITY_ORIGIN: http://identity:8081
+      ORDERS_ORIGIN: http://orders:8083
+      ORDER_OPERATIONS_KEY: ${ORDER_OPERATIONS_KEY:-}
+      MERCHANT_ORIGIN: http://merchant:8084
+      ADMIN_ACCESS_KEY: ${ADMIN_ACCESS_KEY:-}
+      ACCOUNT_ERASURE_KEY: ${ACCOUNT_ERASURE_KEY:-}
+      RIDER_BASE_PAISA: ${RIDER_BASE_PAISA:-}
+    volumes: ["rider-data:/data"]
+  admin:
+    build: ./services/admin
+    ports: ["127.0.0.1:${ADMIN_PORT:-18320}:8086"]
+    environment:
+      IDENTITY_ORIGIN: http://identity:8081
+      ORDERS_ORIGIN: http://orders:8083
+      ORDER_OPERATIONS_KEY: ${ORDER_OPERATIONS_KEY:-}
+      MERCHANT_ORIGIN: http://merchant:8084
+      RIDER_ORIGIN: http://rider:8085
+      ADMIN_ACCESS_KEY: ${ADMIN_ACCESS_KEY:-}
+      ADMIN_DB: /data/admin.sqlite
+    volumes: ["admin-data:/data"]
   mailbox:
     image: axllent/mailpit:v1.27.4
     ports: ["127.0.0.1:${MAILBOX_PORT:-8026}:8025"]
@@ -54,11 +95,15 @@ services:
       - ./services/identity/init.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
       - ./services/identity/accounts.sql:/docker-entrypoint-initdb.d/002-accounts.sql:ro
       - ./services/identity/challenges.sql:/docker-entrypoint-initdb.d/003-challenges.sql:ro
+      - ./services/identity/staff.sql:/docker-entrypoint-initdb.d/004-staff.sql:ro
   broker:
     image: nats:2.11-alpine
     command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222", "--auth", "${NATS_TOKEN:?required}"]
     volumes: ["events:/data"]
 volumes:
+  rider-data:
+  merchant-data:
+  admin-data:
   orders-data:
   identity-data:
   events:

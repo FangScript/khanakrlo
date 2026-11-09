@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID, createHash, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { manageStaff } from './staff.mjs';
 import { security } from './security.mjs';
 const derive = promisify(scrypt);
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -11,6 +12,7 @@ export async function accounts(req, res, pool) {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(body));
   }
   const token = req.headers.authorization?.match(/^Bearer ([a-f0-9]{64})$/)?.[1];
+  if (req.url === '/internal/staff') return manageStaff(req,pool,token && hash(token),reply);
   if (req.url === '/session') {
     if (!token) return reply(401, { error: 'Sign in to continue.' });
     if (req.method === 'DELETE') {
@@ -18,7 +20,7 @@ export async function accounts(req, res, pool) {
       return reply(200,{ signedOut:true });
     }
     if (req.method !== 'GET') return reply(405,{error:'Method unavailable.'});
-    const result = await pool.query(`SELECT a.id,a.email,a.email_verified AS "emailVerified",
+    const result = await pool.query(`SELECT a.id,a.email,a.email_verified AS "emailVerified", (SELECT role FROM identity.staff_grants WHERE account_id=a.id) AS "staffRole",
       COALESCE((SELECT json_agg(json_build_object('id',g.role,'name',g.label) ORDER BY g.role)
                 FROM identity.workspace_grants g WHERE g.account_id=a.id),'[]') AS workspaces
       FROM identity.accounts a JOIN identity.sessions s ON s.account_id=a.id WHERE s.token_hash=$1`,[hash(token)]);

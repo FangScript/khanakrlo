@@ -67,6 +67,32 @@ export function createStore(filename) {
   return {
     close: () => db.close(),
     usable, list, previous,
+    dispatch() {
+      return db.prepare('SELECT summary FROM orders ORDER BY created DESC').all().map(({summary})=>{
+        const o=JSON.parse(summary);
+        return {id:o.id,createdAt:o.createdAt,deliveredAt:o.deliveredAt,status:o.status,city:o.city,address:o.address,pin:o.pin,branches:o.branches,
+          items:o.items,payment:o.payment,paymentStatus:o.paymentStatus,subtotal:o.subtotal,delivery:o.delivery,total:o.total};
+      });
+    },
+    cases() {
+      return db.prepare(`SELECT o.id,o.id AS orderId,(SELECT created FROM messages WHERE order_id=o.id ORDER BY rowid DESC LIMIT 1) AS createdAt,
+        (SELECT body FROM messages WHERE order_id=o.id ORDER BY rowid DESC LIMIT 1) AS lastMessage,
+        (SELECT body FROM messages WHERE order_id=o.id ORDER BY rowid ASC LIMIT 1) AS subject,
+        (SELECT CASE role WHEN 'customer' THEN 'open' ELSE 'replied' END FROM messages WHERE order_id=o.id ORDER BY rowid DESC LIMIT 1) AS status
+        FROM orders o WHERE o.owner IS NOT NULL AND EXISTS (SELECT 1 FROM messages m WHERE m.order_id=o.id) ORDER BY createdAt DESC`).all();
+    },
+    caseDetail(id) {
+      const row=db.prepare('SELECT owner,summary FROM orders WHERE id=? AND owner IS NOT NULL AND EXISTS (SELECT 1 FROM messages WHERE order_id=?)').get(id,id);
+      if(!row)throw missing();
+      const {address,pin,...order}=JSON.parse(row.summary);
+      return {messages:this.messages(row.owner,id),order};
+    },
+    replyToCase(id,text,actorId) {
+      this.caseDetail(id);
+      const message={id:randomUUID(),role:'support',text,createdAt:new Date().toISOString()};
+      db.prepare('INSERT INTO messages(id,order_id,role,body,created) VALUES(?,?,?,?,?)').run(message.id,id,message.role,text,message.createdAt);
+      return message;
+    },
     read: (owner,id) => JSON.parse(orderRow(owner,id).summary),
     notifications(owner) {
       // UNION supports orders placed before event storage was introduced.
@@ -126,6 +152,7 @@ export function createStore(filename) {
             return {rejected:true}; // Commit the failure counter before returning the error.
           }
           order.status = 'delivered';
+          order.deliveredAt = createdAt;
           order.paymentStatus = 'paid';
           title = 'Order delivered';
         } else {
@@ -155,6 +182,17 @@ export function createStore(filename) {
     },
     erase(owner) {
       return transaction(() => {
+        for (const order of list(owner)) {
+          if (['delivered','cancelled'].includes(order.status)) continue;
+          // Before a kitchen commits work, closure can withdraw the outstanding COD request.
+          if (order.branches.some(b=>!['received','cancelled'].includes(b.status))) {
+            throw new OrderError(409,'Finish your active order before closing your account.');
+          }
+          for(const b of order.branches.filter(b=>b.status==='received')){
+            updateBranch(order,{type:'cancelled',branchId:b.id},new Date().toISOString());
+          }
+          db.prepare('UPDATE orders SET summary=? WHERE id=?').run(JSON.stringify(order),order.id);
+        }
         db.prepare('INSERT OR IGNORE INTO erased_accounts(owner_hash) VALUES(?)').run(digest(owner));
         db.prepare('DELETE FROM messages WHERE order_id IN (SELECT id FROM orders WHERE owner=?)').run(owner);
         db.prepare(`UPDATE orders SET owner=NULL,request_key=NULL,request_hash=NULL,otp=NULL,

@@ -94,10 +94,16 @@ async function handle(db,path,input,tokenHash) {
         !timingSafeEqual(await derive(input.password,user.salt,64),Buffer.from(user.digest,'hex')))
       return [403,{error:'Enter your current password to confirm closure.'}];
     if (!process.env.ACCOUNT_ERASURE_KEY) throw Error('Closure unavailable');
-    const response=await fetch(new URL('/internal/accounts/'+user.id+'/erase',process.env.ORDERS_ORIGIN),{
-      method:'POST',headers:{authorization:'Bearer '+process.env.ACCOUNT_ERASURE_KEY},signal:AbortSignal.timeout(3500)});
-    if (response.status===409) return [409,{error:'Complete your open order before closing your account.'}];
-    if (!response.ok) throw Error('Closure unavailable');
+    async function closeAt(origin,action='erase') {
+      if(!origin) return;
+      const reply=await fetch(new URL('/internal/accounts/'+user.id+'/'+action,origin),{
+        method:'POST',headers:{authorization:'Bearer '+process.env.ACCOUNT_ERASURE_KEY},signal:AbortSignal.timeout(3500)});
+      if(reply.status===409)return [409,{error:'Finish your open order or delivery before closing your account.'}];
+      if(!reply.ok)throw Error('Closure service unavailable');
+    }
+    const blocked=await closeAt(process.env.RIDER_ORIGIN,'can-close') || await closeAt(process.env.ORDERS_ORIGIN)
+      || await closeAt(process.env.RIDER_ORIGIN) || await closeAt(process.env.MERCHANT_ORIGIN);
+    if(blocked)return blocked;
     await db.query('DELETE FROM identity.accounts WHERE id=$1',[user.id]);
     return [200,{closed:true}];
   }

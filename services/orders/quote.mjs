@@ -58,7 +58,7 @@ export function priceCart(cart, restaurants, config) {
     branches.set(branch.id, {id: branch.id, name: branch.name, status: 'received'});
     return {
       branchId: branch.id, restaurant: branch.name, dishId: dish.id, name: dish.name,
-      photo: dish.photo, addon: line.addon ? dish.addon.name : '', qty: line.qty, unit, total: unit * line.qty
+      photo: dish.photo, ...(dish.imageUrl?{imageUrl:dish.imageUrl}:{}), addon: line.addon ? dish.addon.name : '', qty: line.qty, unit, total: unit * line.qty
     };
   });
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);

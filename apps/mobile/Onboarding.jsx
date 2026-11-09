@@ -20,6 +20,8 @@ import * as NativeStorage from 'expo-secure-store';
 import Splash from './Splash';
 import Market from './Market';
 import AccountScreens from './AccountScreens';
+import RestaurantWorkspace from './RestaurantWorkspace';
+import RiderWorkspace from './RiderWorkspace';
 import CustomerDesk from './CustomerDesk';
 import DeliveryMap from './DeliveryMap';
 import { Button, Header, Hero, Tabs, ui } from './CustomerUI';
@@ -416,6 +418,10 @@ function Flow() {
         onVerified={(account) => resume({ ...session, ...account })}
       />
     );
+  if (session && (page === 'restaurant' || page === 'rider')) {
+    const Workspace = page === 'restaurant' ? RestaurantWorkspace : RiderWorkspace;
+    return <Workspace onHome={() => market('Home')} onAccount={() => desk('Account')} api={api} session={session} onExit={() => desk('Workspaces')} onAlerts={() => desk('Alerts')} />;
+  }
   if (page === 'desk')
     return (
       <CustomerDesk
@@ -423,6 +429,7 @@ function Flow() {
         initialOrder={currentOrder}
         session={session}
         api={api}
+        onWorkspace={open}
         onMarket={market}
         onAddress={() => editAddress('Account')}
         onLogin={(next) => login(next, 'Account')}

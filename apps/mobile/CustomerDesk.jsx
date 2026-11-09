@@ -83,6 +83,7 @@ export default function CustomerDesk({
   session,
   api,
   onMarket,
+  onWorkspace,
   onAddress,
   onLogin,
   onVerify,
@@ -501,11 +502,14 @@ export default function CustomerDesk({
                       label={w.name}
                       onPress={() => {
                         if (w.id === 'customer') onMarket('Home');
+                        else if (['restaurant', 'rider'].includes(w.id)) onWorkspace(w.id);
                         else visit('Workspace', w.id);
                       }}
                     />
                   ))}
-                  <Text style={ui.body}>Restaurant and rider access appear after approval.</Text>
+                  {['restaurant', 'rider'].filter(role => !data.workspaces.some(w => w.id === role)).map(role =>
+                    <Button key={role} label={role === 'restaurant' ? 'Restaurant application' : 'Rider application'} onPress={() => onWorkspace(role)} />
+                  )}
                   <Hero name="workspace" />
                 </>
               )}

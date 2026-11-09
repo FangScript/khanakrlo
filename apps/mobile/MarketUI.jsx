@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, NativeModules, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
 export const colors = {
@@ -140,8 +140,23 @@ export function Button({ label, onPress, icon, disabled = false, tone = 'orange'
     </Tap>
   );
 }
-export function Food({ dish, style }) {
-  const source = photoMap[dish?.photo];
+export function merchantPhoto(path) {
+  if (typeof path !== 'string' || !/^\/merchant\/images\/[a-fA-F0-9-]{36}$/.test(path)) return null;
+  let base = process.env.EXPO_PUBLIC_GATEWAY_URL;
+  if (!base && __DEV__) {
+    const host =
+      Platform.OS === 'web'
+        ? window.location.hostname
+        : new URL(NativeModules.SourceCode.scriptURL).hostname;
+    base = 'http://' + host + ':18218';
+  }
+  return base ? new URL(path, base).href : null;
+}
+export function CatalogueImage({ imageUrl, fallback, style, resizeMode = 'cover' }) {
+  const uri = merchantPhoto(imageUrl);
+  const [failed, setFailed] = React.useState(null);
+  const remote = uri && uri !== failed;
+  const source = remote ? { uri } : fallback;
   if (!source)
     return (
       <View style={[ui.fallback, style]}>
@@ -151,8 +166,19 @@ export function Food({ dish, style }) {
   return (
     <Image
       accessible={false}
-      resizeMode={dish.photo === 'wrap' ? 'contain' : 'cover'}
+      resizeMode={remote ? 'cover' : resizeMode}
+      onError={remote ? () => setFailed(uri) : undefined}
       source={source}
+      style={style}
+    />
+  );
+}
+export function Food({ dish, style }) {
+  return (
+    <CatalogueImage
+      imageUrl={dish?.imageUrl}
+      fallback={photoMap[dish?.photo]}
+      resizeMode={dish?.photo === 'wrap' ? 'contain' : 'cover'}
       style={[ui.food, style]}
     />
   );
