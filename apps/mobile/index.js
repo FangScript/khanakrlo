@@ -1,7 +1,5 @@
 import { registerRootComponent } from 'expo';
 
-function App() {
-  return null;
-}
+import App from './Onboarding';
 
 registerRootComponent(App);

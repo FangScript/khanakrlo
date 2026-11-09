@@ -3,6 +3,20 @@ import { randomUUID } from 'node:crypto';
 
 createServer(async (req, res) => {
   const url = new URL(req.url, 'http://gateway');
+  if (['/identity/register','/identity/login','/identity/session'].includes(url.pathname)) {
+    try {
+      const target = new URL(url.pathname.slice('/identity'.length), process.env.IDENTITY_ORIGIN);
+      let body = '';
+      for await (const chunk of req) {
+        body += chunk;
+        if (Buffer.byteLength(body)>4096) { res.writeHead(413).end(); return; }
+      }
+      const upstream = await fetch(target, {method:req.method, headers:{'content-type':'application/json', authorization:req.headers.authorization || ''}, body: req.method==='POST' ? body : undefined, signal:AbortSignal.timeout(5000)});
+      const result = await upstream.text();
+      res.writeHead(upstream.status,{'content-type':'application/json','cache-control':'no-store'}).end(result);
+    } catch { res.writeHead(503).end(); }
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/catalogue/restaurants') {
     try {
       const target = new URL('/restaurants', process.env.CATALOGUE_ORIGIN);

@@ -1,9 +1,15 @@
 import { createServer } from 'node:http';
 import pg from 'pg';
+import { accounts } from './accounts.mjs';
 
 const database = new pg.Pool({ max: 4, connectionTimeoutMillis: 1200, query_timeout: 1200 });
 database.on('error', () => console.warn('Idle database connection lost'));
 createServer(async (req, res) => {
+  if (['/register','/login','/session'].includes(req.url)) {
+    try { await accounts(req, res, database); }
+    catch { res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify({error:'Account service unavailable.'})); }
+    return;
+  }
   if (req.method !== 'GET' || req.url !== '/ready') {
     res.writeHead(404).end();
     return;

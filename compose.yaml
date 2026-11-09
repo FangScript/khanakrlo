@@ -2,7 +2,7 @@ name: khana-v2
 services:
   gateway:
     build: ./services/gateway
-    ports: ["127.0.0.1:${GATEWAY_PORT:-8180}:8080"]
+    ports: ["${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-8180}:8080"]
     environment:
       IDENTITY_ORIGIN: http://identity:8081
       CATALOGUE_ORIGIN: http://catalogue:8082
@@ -26,6 +26,7 @@ services:
     volumes:
       - identity-data:/var/lib/postgresql/data
       - ./services/identity/init.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+      - ./services/identity/accounts.sql:/docker-entrypoint-initdb.d/002-accounts.sql:ro
   broker:
     image: nats:2.11-alpine
     command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222", "--auth", "${NATS_TOKEN:?required}"]
