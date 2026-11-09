@@ -19,6 +19,12 @@ const art = {
   route: require('./art/route.png'), welcome: require('./art/welcome.png'),
   identity: require('./art/identity.png'),
 };
+const deliveryCities = ['Islamabad', 'Rawalpindi'];
+function addressCity(address) {
+  const parts = address.toLowerCase().split(/[^a-z]+/);
+  const matches = deliveryCities.filter(name => parts.includes(name.toLowerCase()));
+  return matches.length === 1 ? matches[0] : '';
+}
 const sessionKey = 'kk.v2.session';
 async function api(path, method = 'GET', data, token) {
   const base = (Platform.OS==='web' && __DEV__ ? '/dev-api' : process.env.EXPO_PUBLIC_GATEWAY_URL) || (__DEV__ && 'http://' + new URL(NativeModules.SourceCode.scriptURL).hostname + ':18218');
@@ -125,14 +131,49 @@ function Flow() {
       catch(e){if(e.status!==401)throw e;await SecureStore.deleteItemAsync(sessionKey);open('welcome');}
     });
   }
-  function locate() {
-    run(async()=>{
-      if(!(await Location.requestForegroundPermissionsAsync()).granted) throw new Error('Enter your street and city below.');
-      const {coords}=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
-      const point={latitude:coords.latitude,longitude:coords.longitude};setPin(point);
-      const [place]=await Location.reverseGeocodeAsync(point);
-      setCity(['Islamabad','Rawalpindi'].find(c=>c.toLowerCase()===place?.city?.toLowerCase())||'');
-      setAddress([place?.streetNumber,place?.street,place?.city].filter(Boolean).join(' '));
+  const locationRequest = useRef(0);
+  const [locating, setLocating] = useState(false);
+  function cancelLocation() {
+    locationRequest.current++;
+    setLocating(false);
+  }
+  async function locate() {
+    const id = ++locationRequest.current;
+    setLocating(true);
+    setNote('');
+    try {
+      if (!(await Location.requestForegroundPermissionsAsync()).granted)
+        throw new Error('Enter your street and choose a delivery city.');
+      if (id !== locationRequest.current) return;
+      const {coords} = await Location.getCurrentPositionAsync({accuracy: Location.Accuracy.Balanced});
+      if (id !== locationRequest.current) return;
+      const point = {latitude: coords.latitude, longitude: coords.longitude};
+      setPin(point);
+      const [place] = await Location.reverseGeocodeAsync(point);
+      if (id !== locationRequest.current) return;
+      const street = [place?.streetNumber, place?.street].filter(Boolean).join(' ') || place?.name || '';
+      const foundCity = addressCity([place?.city, place?.district, place?.subregion].filter(Boolean).join(' '));
+      setCity(foundCity);
+      setAddress([street, place?.city].filter(Boolean).join(', '));
+      if (!street || !foundCity) setNote('Check your street and select the delivery city below.');
+    } catch {
+      if (id === locationRequest.current) setNote('Enter your street and choose a delivery city below.');
+    } finally {
+      if (id === locationRequest.current) setLocating(false);
+    }
+  }
+  function saveAddress() {
+    run(async () => {
+      cancelLocation();
+      const street = address.trim();
+      if (!street) throw new Error('Enter your delivery street.');
+      const deliveryCity = city || addressCity(street);
+      if (!deliveryCity) throw new Error('Choose Islamabad or Rawalpindi to continue.');
+      await SecureStore.setItemAsync('kk.v2.address', JSON.stringify({address: street, city: deliveryCity, pin}));
+      setAddress(street);
+      setCity(deliveryCity);
+      setMarketPage('Home');
+      open('market');
     });
   }
   if (page==='splash') return <Splash/>;
@@ -152,8 +193,28 @@ function Flow() {
         <Text style={styles.label}>Email address</Text><View style={styles.password}><Icon name="email"/><TextInput accessibilityLabel="Email address" style={styles.passwordInput} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" placeholder="name@example.com"/></View>
         <Text style={styles.label}>Password</Text><View style={styles.password}><Icon name="lock"/><TextInput accessibilityLabel="Password" secureTextEntry={!visible} value={password} onChangeText={setPassword} editable={!busy} onSubmitEditing={submit} autoCapitalize="none" autoComplete={page==='register'?'new-password':'current-password'} style={styles.passwordInput}/><Pressable accessibilityRole="button" accessibilityLabel={visible ? "Hide password" : "Show password"} onPress={()=>showPassword(!visible)} style={{padding:12}}><Icon name={visible ? "eyeOff" : "eye"}/></Pressable></View>
         <Action orange label={busy?'Please wait…':page==='register'?'Create account':'Sign in'} disabled={busy} onPress={submit}/></>}
-      {page==='guest' && <><Text style={styles.heading}>Delivery address</Text>{session && <Text>{session.email}</Text>}<Action icon="pin" label="Use my current location" disabled={busy} onPress={locate}/>{pin && <Text>Delivery pin · {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}</Text>}<Text style={styles.label}>Delivery city</Text>{['Islamabad','Rawalpindi'].map(c=><Action key={c} label={(city===c?'✓ ':'')+c} onPress={()=>{if(city!==c)setPin(null);setCity(c);}}/>)}<Text style={styles.label}>Street and city</Text><TextInput style={styles.input} accessibilityLabel="Street and city" value={address} onChangeText={text=>{setAddress(text);setPin(null);}}/><Action orange label="Save address" disabled={!address.trim()||!city||busy} onPress={()=>run(async()=>{await SecureStore.setItemAsync('kk.v2.address',JSON.stringify({address:address.trim(),city,pin}));setMarketPage('Home');open('market');})}/><Action label={session?'Sign out':'Back'} disabled={busy} onPress={()=>run(async()=>{if(session){await api('/identity/session','DELETE',null,session.token);await SecureStore.deleteItemAsync(sessionKey);setSession(null);}open('welcome');})}/></>}
-      {!!note && <Text accessibilityRole="alert" style={styles.note}>{note}</Text>}
+      {page==='guest' && <>
+        <Text style={styles.heading}>Delivery address</Text>
+        {session && <Text>{session.email}</Text>}
+        <Action icon="pin" label={locating?'Finding your location…':'Use my current location'} disabled={busy||locating} onPress={locate}/>
+        {pin && <Text>Delivery pin · {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}</Text>}
+        <Text style={styles.label}>Delivery city</Text>
+        {deliveryCities.map(c=><Action key={c} label={(city===c?'✓ ':'')+c} onPress={()=>{
+          cancelLocation(); if(city!==c)setPin(null); setCity(c); setNote('');
+        }}/>)}
+        <Text style={styles.label}>Street and city</Text>
+        <TextInput style={styles.input} accessibilityLabel="Street and city" value={address} onChangeText={text=>{
+          cancelLocation(); setAddress(text); setPin(null); setNote('');
+        }}/>
+        {!!note && <Text accessibilityRole="alert" style={styles.note}>{note}</Text>}
+        <Action orange label="Save address" disabled={busy} onPress={saveAddress}/>
+        <Action label={session?'Sign out':'Back'} disabled={busy} onPress={()=>run(async()=>{
+          cancelLocation();
+          if(session){await api('/identity/session','DELETE',null,session.token);await SecureStore.deleteItemAsync(sessionKey);setSession(null);}
+          open('welcome');
+        })}/>
+      </>}
+      {page!=='guest' && !!note && <Text accessibilityRole="alert" style={styles.note}>{note}</Text>}
       </ScrollView>
     </KeyboardAvoidingView></SafeAreaView></View>;
 }
