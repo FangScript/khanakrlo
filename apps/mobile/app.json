@@ -3,6 +3,7 @@
     "name": "Khana Krlo",
     "slug": "khana-krlo-v2",
     "version": "0.1.0",
+    "icon": "./brand.png",
     "android": { "package": "pk.khanakrlo.app" },
     "plugins": [["expo-location", { "locationWhenInUsePermission": "Allow Khana Krlo to find the street and pin for your delivery." }]]
   }

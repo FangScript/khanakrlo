@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import Storage from '@react-native-async-storage/async-storage';
 
@@ -12,6 +12,7 @@ function CustomerHome() {
   const [editing, setEditing] = useState(false);
   const [city, setCity] = useState('');
   const [welcome, setWelcome] = useState(true);
+  const [launch, setLaunch] = useState('logo');
   const [pin, setPin] = useState(null);
   const [locating, setLocating] = useState(false);
   const request = useRef(0);
@@ -19,6 +20,11 @@ function CustomerHome() {
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState('');
   const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setLaunch('intro'), 1400);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     Storage.getItem(addressKey).then(raw => {
@@ -87,10 +93,21 @@ function CustomerHome() {
     }
   }
 
+  if (launch === 'logo') return <SafeAreaView style={styles.logoPage}>
+    <Image accessibilityLabel="Khana Krlo" source={require('./brand.png')} style={styles.brand} />
+  </SafeAreaView>;
+  if (launch === 'intro') return <SafeAreaView style={styles.page}>
+    <ScrollView contentContainerStyle={styles.intro}>
+      <Text accessibilityRole="header" style={styles.introTitle}>Welcome to Khana Krlo</Text>
+      <Text style={styles.body}>Order from restaurants across Rawalpindi and Islamabad and follow your delivery to your door.</Text>
+      <Pressable accessibilityRole="button" onPress={() => setLaunch('app')} style={styles.action}><Text style={styles.label}>Continue</Text></Pressable>
+    </ScrollView>
+  </SafeAreaView>;
   return <SafeAreaView style={styles.page}>
     <StatusBar barStyle="dark-content" />
     {welcome ? <View style={[styles.content, { flex: 1, justifyContent: 'center' }]}>
-      <Text accessibilityRole="header" style={styles.title}>Welcome to Khana Krlo</Text>
+      <Text accessibilityRole="header" style={styles.title}>Get started</Text>
+      <Text style={styles.body}>Sign in and account creation will be available when accounts open.</Text>
       <Pressable accessibilityRole="button" disabled={!loaded} onPress={editAddress} style={styles.action}><Text style={styles.label}>Choose delivery location</Text></Pressable>
       <Pressable accessibilityRole="button" onPress={() => setWelcome(false)} style={styles.chip}><Text style={styles.label}>Browse as guest</Text></Pressable>
     </View> : <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -127,6 +144,10 @@ export default function Home() {
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#FFF9EE' },
+  logoPage: { flex: 1, backgroundColor: '#FCF7EC', alignItems: 'center', justifyContent: 'center' },
+  brand: { width: 144, height: 144, borderRadius: 32 },
+  intro: { flexGrow: 1, justifyContent: 'center', padding: 32, gap: 20 },
+  introTitle: { fontSize: 36, fontWeight: '800', color: '#263A2C' },
   content: { padding: 24, gap: 18 },
   address: { padding: 20, gap: 6, borderRadius: 26, backgroundColor: '#DCEAAE', boxShadow: '0 5px 9px #48562928, inset 1px 2px 3px #F7FFDF, inset -2px -3px 5px #B7CB89' },
   title: { fontSize: 22, fontWeight: '700', color: '#263A2C' },
