@@ -3,18 +3,32 @@ import { randomUUID } from 'node:crypto';
 
 createServer(async (req, res) => {
   const url = new URL(req.url, 'http://gateway');
-  if (['/identity/register','/identity/login','/identity/session'].includes(url.pathname)) {
+  const origin = req.headers.origin;
+  if (origin && (process.env.WEB_ORIGINS || '').split(',').includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary','Origin');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {'Access-Control-Allow-Headers':'Content-Type, Authorization','Access-Control-Allow-Methods':'GET, POST, DELETE'}).end();
+      return;
+    }
+  }
+  const accountRoute = /^\/identity\/(?:session|register|login|close|verify\/(?:request|confirm)|reset\/(?:request|confirm))$/.test(url.pathname);
+  const orderRoute = /^\/(?:workspaces|notifications|orders(?:\/(?:quote|KK-[0-9A-F]{16}(?:\/(?:otp|support))?))?)$/.test(url.pathname);
+  if (accountRoute || orderRoute) {
     try {
-      const target = new URL(url.pathname.slice('/identity'.length), process.env.IDENTITY_ORIGIN);
-      let body = '';
+      const target = accountRoute
+        ? new URL(url.pathname.slice('/identity'.length), process.env.IDENTITY_ORIGIN)
+        : new URL(url.pathname, process.env.ORDERS_ORIGIN);
+      const chunks = [];
+      let length = 0;
       for await (const chunk of req) {
-        body += chunk;
-        if (Buffer.byteLength(body)>4096) { res.writeHead(413).end(); return; }
+        length += chunk.length;
+        if (length > (accountRoute ? 4096 : 32768)) { res.writeHead(413).end(); return; }
+        chunks.push(chunk);
       }
-      const upstream = await fetch(target, {method:req.method, headers:{'content-type':'application/json', authorization:req.headers.authorization || ''}, body: req.method==='POST' ? body : undefined, signal:AbortSignal.timeout(5000)});
-      const result = await upstream.text();
-      res.writeHead(upstream.status,{'content-type':'application/json','cache-control':'no-store'}).end(result);
-    } catch { res.writeHead(503).end(); }
+      const upstream = await fetch(target, {method:req.method, headers:{'content-type':'application/json', authorization:req.headers.authorization || ''}, body:req.method==='POST'?Buffer.concat(chunks):undefined, signal:AbortSignal.timeout(15000)});
+      res.writeHead(upstream.status,{'content-type':'application/json','cache-control':'no-store'}).end(await upstream.text());
+    } catch { res.writeHead(503,{'content-type':'application/json'}).end(JSON.stringify({error:'Service unavailable. Please try again.'})); }
     return;
   }
   if (req.method === 'GET' && url.pathname === '/catalogue/restaurants') {

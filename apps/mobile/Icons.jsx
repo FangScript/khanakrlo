@@ -2,6 +2,13 @@ import React from 'react';
 import Svg, { Path } from 'react-native-svg';
 
 const paths = {
+  bell:'M5 16h14l-2-3V9a5 5 0 0 0-10 0v4ZM10 19q2 3 4 0',
+  search:'M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0Zm-2 5 7 7',
+  home:'m2 11 10-8 10 8-2 0v10h-6v-6h-4v6H4V11Z',
+  orders:'M5 3h14v18l-3-2-4 2-4-2-3 2ZM8 8h8M8 12h7',
+  cart:'M2 3h3l3 12h11l3-9H6M8 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM18 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z',
+  send:'M3 4l18 8-18 8 4-8ZM7 12h14',
+
   user: 'M15.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0ZM4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2Z',
   register: 'M13 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM2 20v-2a5 5 0 0 1 5-5h5a5 5 0 0 1 5 5v2ZM19 5v6m-3-3h6',
   compass: 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0ZM16.5 7.5l-3 6-6 3 3-6Z',

@@ -6,7 +6,7 @@ config.server.enhanceMiddleware = (middleware, server) => {
   const metro = enhance ? enhance(middleware, server) : middleware;
   return (req, res, next) => {
     const pathname = req.url.split('?')[0];
-    if (!['/dev-api/catalogue/restaurants', '/dev-api/identity/register', '/dev-api/identity/login', '/dev-api/identity/session'].includes(pathname)) {
+    if (!/^\/dev-api\/(?:identity\/(?:session|register|login|close|verify\/(?:request|confirm)|reset\/(?:request|confirm))|catalogue\/restaurants|workspaces|notifications|orders(?:\/(?:quote|KK-[0-9A-F]{16}(?:\/(?:otp|support))?))?)$/.test(pathname)) {
       return metro(req, res, next);
     }
     if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) {
@@ -17,7 +17,7 @@ config.server.enhanceMiddleware = (middleware, server) => {
     const base = process.env.KHANA_DEV_GATEWAY || 'http://' + (local.includes(':') ? '[' + local + ']' : local) + ':18218';
     const target = new URL(req.url.slice('/dev-api'.length), base);
     const upstream = http.request(target, {
-      method: req.method, timeout: 6000,
+      method: req.method, timeout: 16500,
       headers: { 'content-type': 'application/json', authorization: req.headers.authorization || '' },
     }, response => {
       res.writeHead(response.statusCode, { 'content-type': 'application/json', 'cache-control': 'no-store' });

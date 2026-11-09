@@ -1,1 +1,1 @@
-{"name":"khana-identity","version":"0.1.0","private":true,"type":"module","dependencies":{"pg":"^8.16.0"}}
+{"name":"khana-identity","version":"0.1.0","private":true,"type":"module","dependencies":{"nodemailer":"^10.4.0","pg":"^8.16.0"}}

@@ -4,6 +4,8 @@ services:
     build: ./services/gateway
     ports: ["${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-8180}:8080"]
     environment:
+      WEB_ORIGINS: ${WEB_ORIGINS:-}
+      ORDERS_ORIGIN: http://orders:8083
       IDENTITY_ORIGIN: http://identity:8081
       CATALOGUE_ORIGIN: http://catalogue:8082
   catalogue:
@@ -17,6 +19,30 @@ services:
       PGDATABASE: identity
       PGUSER: identity_runtime
       PGPASSWORD: ${IDENTITY_PASSWORD:?required}
+      SMTP_HOST: ${SMTP_HOST:-mailbox}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-accounts@khana.test}
+      SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-false}
+      RESET_URL: ${RESET_URL:-http://localhost:8097}
+      ALLOW_DEV_RESET_HTTP: ${ALLOW_DEV_RESET_HTTP:-true}
+      CODE_SECRET: ${CODE_SECRET:-}
+      ORDERS_ORIGIN: http://orders:8083
+      ACCOUNT_ERASURE_KEY: ${ACCOUNT_ERASURE_KEY:-}
+  orders:
+    build: ./services/orders
+    environment:
+      IDENTITY_ORIGIN: http://identity:8081
+      CATALOGUE_ORIGIN: http://catalogue:8082
+      PREVIEW_DELIVERY_PAISA: ${PREVIEW_DELIVERY_PAISA:-}
+      ORDER_OPERATIONS_KEY: ${ORDER_OPERATIONS_KEY:-}
+      PREVIEW_TAX_BPS: ${PREVIEW_TAX_BPS:-}
+      ACCOUNT_ERASURE_KEY: ${ACCOUNT_ERASURE_KEY:-}
+    volumes: ["orders-data:/data"]
+  mailbox:
+    image: axllent/mailpit:v1.27.4
+    ports: ["127.0.0.1:${MAILBOX_PORT:-8026}:8025"]
   db:
     image: postgres:16-alpine
     environment:
@@ -27,10 +53,12 @@ services:
       - identity-data:/var/lib/postgresql/data
       - ./services/identity/init.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
       - ./services/identity/accounts.sql:/docker-entrypoint-initdb.d/002-accounts.sql:ro
+      - ./services/identity/challenges.sql:/docker-entrypoint-initdb.d/003-challenges.sql:ro
   broker:
     image: nats:2.11-alpine
     command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222", "--auth", "${NATS_TOKEN:?required}"]
     volumes: ["events:/data"]
 volumes:
+  orders-data:
   identity-data:
   events:

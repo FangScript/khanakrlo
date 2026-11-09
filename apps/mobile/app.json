@@ -2,6 +2,7 @@
   "expo": {
     "name": "Khana Krlo",
     "slug": "khana-krlo-v2",
+    "scheme": "khanakrlo",
     "version": "0.1.0",
     "icon": "./brand.png",
     "android": { "package": "pk.khanakrlo.app" },
