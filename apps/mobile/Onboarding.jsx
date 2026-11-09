@@ -45,7 +45,7 @@ function Action({label, onPress, orange, disabled, icon, clay}) {
 }
 function IntroPhoto() {
   const {width, height} = useWindowDimensions();
-  const w = Math.min(width-10, 520);
+  const w = Math.min(width - 2 * StyleSheet.hairlineWidth, 520);
   return <View style={{width:w,height:Math.min(w*0.9,height*0.43),alignSelf:'center'}}>
     <Image source={require('./art/grill.jpg')} resizeMode="cover" style={{width:'100%',height:'100%'}}/>
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -145,7 +145,7 @@ const styles=StyleSheet.create({
  corner:{position:'absolute',top:-80,left:-85,width:230,height:200,borderRadius:100,backgroundColor:'#D9E69D'},
  brand:{textAlign:'center',color:ink,fontSize:42,fontWeight:'900'},heading:{color:ink,fontSize:34,fontWeight:'900'},
  hero:{borderRadius:26},summary:{fontSize:19,lineHeight:26,textAlign:'center',color:'#5C5D4F',paddingHorizontal:12},
- clayFrame:{borderWidth:3,borderRadius:28,borderColor:'#bdce8a'},
+ clayFrame:{borderWidth:StyleSheet.hairlineWidth,borderRadius:0,borderColor:'#bdce8a'},
  introPage:{paddingHorizontal:16,paddingVertical:12,justifyContent:'space-evenly',gap:8},
  welcomePage:{paddingHorizontal:16,paddingVertical:26,justifyContent:'center',gap:16},
  welcomeTitle:{fontSize:46,fontWeight:'800'},clayButton:{minHeight:66,borderRadius:34},clayLabel:{fontSize:24,fontWeight:'700'},leadingIcon:{position:'absolute',left:22},pillColor:{overflow:'hidden',borderRadius:34},
