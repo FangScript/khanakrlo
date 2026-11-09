@@ -3,6 +3,7 @@ import { BackHandler, Image, KeyboardAvoidingView, NativeModules, Platform, Pres
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as NativeStorage from 'expo-secure-store';
 import Splash from './Splash';
+import Market from './Market';
 
 const SecureStore = Platform.OS === 'web' ? {
   getItemAsync: async key => sessionStorage.getItem(key),
@@ -71,13 +72,27 @@ function Flow() {
   const [busy,setBusy] = useState(false);
   const [session,setSession] = useState(null);
   const [address,setAddress] = useState('');
+  const [city,setCity]=useState('');
+  const [lines,setLines]=useState([]);
+  const [marketPage,setMarketPage]=useState('Home');
+  const checkoutLogin=useRef(false);
+  useEffect(()=>{
+    let active=true;
+    SecureStore.getItemAsync('kk.v2.address').then(raw=>{
+      if(!active||!raw)return;
+      const saved=JSON.parse(raw);
+      if(typeof saved.address==='string'){setAddress(saved.address);setPin(saved.pin||null);}
+      if(['Rawalpindi','Islamabad'].includes(saved.city))setCity(saved.city);
+    }).catch(()=>{});
+    return ()=>{active=false;};
+  },[]);
   const [pin,setPin] = useState(null);
   const lock = useRef(false);
   useEffect(()=>{
     const timer=setTimeout(()=>go('intro'),1300);
     return ()=>clearTimeout(timer);
   },[]);
-  function open(next) { setNote('');setPassword('');showPassword(false);go(next); }
+  function open(next) { if(next==='welcome')checkoutLogin.current=false; setNote('');setPassword('');showPassword(false);go(next); }
   useEffect(()=>{
     if (Platform.OS === 'web') return;
     const handler=BackHandler.addEventListener('hardwareBackPress',()=>{
@@ -99,7 +114,7 @@ function Flow() {
       if(!email.trim()||!password) throw new Error('Enter your email and password.');
       const value=await api('/identity/'+page,'POST',{email:email.trim(),password});
       await SecureStore.setItemAsync(sessionKey,value.token);
-      setSession(value);open('guest');
+      setSession(value);if(checkoutLogin.current){checkoutLogin.current=false;setMarketPage('Checkout');open('market');}else open('guest');
     });
   }
   function continueIntro() {
@@ -116,10 +131,14 @@ function Flow() {
       const {coords}=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
       const point={latitude:coords.latitude,longitude:coords.longitude};setPin(point);
       const [place]=await Location.reverseGeocodeAsync(point);
+      setCity(['Islamabad','Rawalpindi'].find(c=>c.toLowerCase()===place?.city?.toLowerCase())||'');
       setAddress([place?.streetNumber,place?.street,place?.city].filter(Boolean).join(' '));
     });
   }
   if (page==='splash') return <Splash/>;
+  if(page==='market') return <Market address={address} city={city} api={api} account={session}
+    firstPage={marketPage} lines={lines} setLines={setLines}
+    onAddress={()=>open('guest')} onLogin={()=>{checkoutLogin.current=true;open('login');}}/>;
   const auth=page==='register'||page==='login';
   return <View style={[styles.frame, (page==='intro'||page==='welcome') && styles.clayFrame]}><StatusBar barStyle="dark-content"/>
     <SafeAreaView style={styles.safe}><KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS==='ios'?'padding':undefined}>
@@ -133,7 +152,7 @@ function Flow() {
         <Text style={styles.label}>Email address</Text><View style={styles.password}><Icon name="email"/><TextInput accessibilityLabel="Email address" style={styles.passwordInput} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" placeholder="name@example.com"/></View>
         <Text style={styles.label}>Password</Text><View style={styles.password}><Icon name="lock"/><TextInput accessibilityLabel="Password" secureTextEntry={!visible} value={password} onChangeText={setPassword} editable={!busy} onSubmitEditing={submit} autoCapitalize="none" autoComplete={page==='register'?'new-password':'current-password'} style={styles.passwordInput}/><Pressable accessibilityRole="button" accessibilityLabel={visible ? "Hide password" : "Show password"} onPress={()=>showPassword(!visible)} style={{padding:12}}><Icon name={visible ? "eyeOff" : "eye"}/></Pressable></View>
         <Action orange label={busy?'Please wait…':page==='register'?'Create account':'Sign in'} disabled={busy} onPress={submit}/></>}
-      {page==='guest' && <><Text style={styles.heading}>Delivery address</Text>{session && <Text>{session.email}</Text>}<Action icon="pin" label="Use my current location" disabled={busy} onPress={locate}/>{pin && <Text>Delivery pin · {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}</Text>}<Text style={styles.label}>Street and city</Text><TextInput style={styles.input} accessibilityLabel="Street and city" value={address} onChangeText={setAddress}/><Action orange label="Save address" disabled={!address.trim()||busy} onPress={()=>run(async()=>{await SecureStore.setItemAsync('kk.v2.address',JSON.stringify({address:address.trim(),pin}));setNote('Delivery address saved.');})}/><Action label={session?'Sign out':'Back'} disabled={busy} onPress={()=>run(async()=>{if(session){await api('/identity/session','DELETE',null,session.token);await SecureStore.deleteItemAsync(sessionKey);setSession(null);}open('welcome');})}/></>}
+      {page==='guest' && <><Text style={styles.heading}>Delivery address</Text>{session && <Text>{session.email}</Text>}<Action icon="pin" label="Use my current location" disabled={busy} onPress={locate}/>{pin && <Text>Delivery pin · {pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}</Text>}<Text style={styles.label}>Delivery city</Text>{['Islamabad','Rawalpindi'].map(c=><Action key={c} label={(city===c?'✓ ':'')+c} onPress={()=>{if(city!==c)setPin(null);setCity(c);}}/>)}<Text style={styles.label}>Street and city</Text><TextInput style={styles.input} accessibilityLabel="Street and city" value={address} onChangeText={text=>{setAddress(text);setPin(null);}}/><Action orange label="Save address" disabled={!address.trim()||!city||busy} onPress={()=>run(async()=>{await SecureStore.setItemAsync('kk.v2.address',JSON.stringify({address:address.trim(),city,pin}));setMarketPage('Home');open('market');})}/><Action label={session?'Sign out':'Back'} disabled={busy} onPress={()=>run(async()=>{if(session){await api('/identity/session','DELETE',null,session.token);await SecureStore.deleteItemAsync(sessionKey);setSession(null);}open('welcome');})}/></>}
       {!!note && <Text accessibilityRole="alert" style={styles.note}>{note}</Text>}
       </ScrollView>
     </KeyboardAvoidingView></SafeAreaView></View>;

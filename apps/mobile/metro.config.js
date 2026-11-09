@@ -5,7 +5,8 @@ const enhance = config.server.enhanceMiddleware;
 config.server.enhanceMiddleware = (middleware, server) => {
   const metro = enhance ? enhance(middleware, server) : middleware;
   return (req, res, next) => {
-    if (!['/dev-api/identity/register', '/dev-api/identity/login', '/dev-api/identity/session'].includes(req.url)) {
+    const pathname = req.url.split('?')[0];
+    if (!['/dev-api/catalogue/restaurants', '/dev-api/identity/register', '/dev-api/identity/login', '/dev-api/identity/session'].includes(pathname)) {
       return metro(req, res, next);
     }
     if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) {
