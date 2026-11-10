@@ -2,7 +2,7 @@
 
 Khana Krlo Islamabad aur Rawalpindi ke liye food delivery app hai. Customer ek cart mein mukhtalif restaurants ki dishes rakh sakta hai. Har restaurant apna hissa tayyar karta hai aur ek rider sab pickups ke baad customer ko ek delivery deta hai.
 
-Kaam ki maujooda surat-e-haal aur launch ke aglay qadam [V2 roadmap](ROADMAP.md) mein parhein. [PDF copy](docs/Khana-Krlo-V2-Roadmap.pdf) bhi dastiyab hai.
+[Har module ka status aur bacha hua kaam](docs/MODULE-STATUS.md) dekhein. Launch ke aglay qadam [V2 roadmap](ROADMAP.md) mein parhein. [PDF copy](docs/Khana-Krlo-V2-Roadmap.pdf) bhi dastiyab hai.
 
 ## App mein kya hai
 
